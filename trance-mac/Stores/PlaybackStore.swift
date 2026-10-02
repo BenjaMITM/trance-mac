@@ -5,6 +5,9 @@ import Observation
 @MainActor @Observable final class PlaybackStore {
     var session: Session?
     var programName = ""
+    private var manualProgram: String?
+    private var manualProgramItem = ""
+    var hasProgramOverride: Bool { manualProgram != nil }
     var visualName = "parallel"
     var primaryTheme = ""
     var secondaryTheme = ""
@@ -75,6 +78,7 @@ import Observation
     func install(_ session: Session) {
         do {
             queuedAudio?.cancel(); queuedAudio = nil; themeAudioGeneration += 1; audio.resetPlayback()
+            manualProgram = nil; manualProgramItem = ""
             self.session = session; editorText = try session.json.text(); themePins = []; forcedVisual = nil
             playlist = PlaylistRunner(); playlist.variables = variables
             let initialEvents = try playlist.start(session: session)
@@ -102,7 +106,9 @@ import Observation
             playlist.variables = variables
             let events = try playlist.advance(delta,session:session)
             dispatchAudio(events,session:session)
-            if !playlist.program.isEmpty, playlist.program != programName { programName = playlist.program; chooseThemes(); try chooseVisual(); audio.configure(program["entrainment"]) }
+            if manualProgram != nil, playlist.current != manualProgramItem { manualProgram = nil }
+            let desiredProgram = manualProgram ?? playlist.program
+            if !desiredProgram.isEmpty, desiredProgram != programName { programName = desiredProgram; chooseThemes(); try chooseVisual(); audio.configure(program["entrainment"]) }
             audio.tick(delta); contentTime += delta; themeClock += delta
             if themeClock > 15 { chooseThemes(); themeClock = 0 }
             accumulator += delta*max(1,program["global_fps"].number)
@@ -114,6 +120,18 @@ import Observation
             }
             diagnostics = runtime?.diagnostics ?? []
         } catch { paused = true; message = error.localizedDescription }
+    }
+    func selectProgram(_ name: String) {
+        guard programNames.contains(name) else { return }
+        manualProgram = name; manualProgramItem = playlist.current; programName = name
+        chooseThemes(); audio.configure(program["entrainment"])
+        do { try chooseVisual() } catch { message = error.localizedDescription }
+    }
+    func releaseProgram() {
+        manualProgram = nil
+        if !playlist.program.isEmpty { programName = playlist.program }
+        chooseThemes(); audio.configure(program["entrainment"])
+        do { try chooseVisual() } catch { message = error.localizedDescription }
     }
     func chooseThemes() {
         let rows = program["enabled_theme"].array.filter { session?.pools[$0["theme_name"].string] != nil }

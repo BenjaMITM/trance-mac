@@ -9,8 +9,14 @@
 - JSON editing, legacy session import and portable ZIP export.
 - Core tests and a shared build/run entrypoint.
 
+- Dedicated custom-pattern and playlist editors, native color pickers and visual pin controls.
+- Headless session lint and archive export without starting the UI or audio engine.
+
 ### Fixed
 - Core Audio callback isolation causing startup crashes in the first build.
+- Exhausted subroutines restarting, incorrect playlist reference handling, and permissive malformed session fields.
+- Named ancestor image-register addressing and shared ramp-segment registers.
+- Audio cue conversion ordering and stale theme-audio replacement.
 
 ### Known limitations
 - Feature parity is under active verification; see MIGRATION.md before relying on existing sessions.

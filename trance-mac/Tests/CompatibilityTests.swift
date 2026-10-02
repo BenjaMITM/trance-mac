@@ -152,3 +152,34 @@ private func fixture(_ json: JSONValue) throws -> Session {
     let session = try fixture(json)
     #expect(session.json["program_map"]["p"]["enabled_theme"].array.count == 1)
 }
+
+@Test func playlistRenameUpdatesBranchesChildrenAndEntryPoint() throws {
+    var session = try fixture(minimal())
+    session.json["first_playlist_item"] = .string("old")
+    session.json["playlist"] = .object([
+        "old":.object(["standard":.object(["program":.string("default")]),"next_item":.array([.object(["playlist_item_name":.string("old"),"random_weight":.number(1)])])]),
+        "caller":.object(["subroutine":.array([.string("old"),.string("old")])])])
+    let updated = try PlaylistAuthoring.save(session:session,originalName:"old",name:"new",item:session.json["playlist"]["old"],first:false)
+    #expect(updated.json["playlist"].object["old"] == nil)
+    #expect(updated.json["first_playlist_item"].string == "new")
+    #expect(updated.json["playlist"]["new"]["next_item"].array.first?["playlist_item_name"].string == "new")
+    #expect(updated.json["playlist"]["caller"]["subroutine"].array == [.string("new"),.string("new")])
+}
+@Test func playlistEditorRejectsMissingReferencesBeforeRepair() throws {
+    let session = try fixture(minimal())
+    let invalid: JSONValue = .object(["standard":.object(["program":.string("missing")])])
+    #expect(throws:TranceError.self) { try PlaylistAuthoring.save(session:session,originalName:nil,name:"new",item:invalid,first:false) }
+    let missingChild: JSONValue = .object(["subroutine":.array([.string("missing")])])
+    #expect(throws:TranceError.self) { try PlaylistAuthoring.save(session:session,originalName:nil,name:"new",item:missingChild,first:false) }
+    #expect(session.json["playlist"].object["new"] == nil)
+}
+
+@Test func originalRepositorySessionFixtureLoadsAndLints() throws {
+    let workspace = URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let input = workspace.appendingPathComponent("trance-original-windows-dotnet/tests/fixtures/xr-baseline/session-used-default.json")
+    let before = try Data(contentsOf:input)
+    let session = try Session.load(input)
+    #expect(session.json["first_playlist_item"].string == "default")
+    #expect(try SessionLint.validate(session) >= 8)
+    #expect(try Data(contentsOf:input) == before)
+}

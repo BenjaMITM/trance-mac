@@ -28,11 +28,7 @@ public struct Session: Sendable {
         try Session(json: JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: url)), url: url)
     }
     public static func new(at url: URL) throws -> Session {
-        let program: JSONValue = .object([
-            "global_fps": .number(120), "zoom_intensity": .number(0.5),
-            "spiral_colour_a": .string("#FFFFFF"), "spiral_colour_b": .string("#000000"),
-            "main_text_colour": .string("#FFFFFF"), "shadow_text_colour": .string("#000000"),
-            "visual_type": .array([.object(["type": .string("parallel"), "random_weight": .number(1)])])])
+        let program = Self.defaultProgram
         return try Session(json: .object(["format": .string("trance-session"), "format_version": .number(1),
             "theme_scan_root": .string("."), "first_playlist_item": .string("main"),
             "playlist": .object(["main": .object(["standard": .object(["program": .string("default")])])]),

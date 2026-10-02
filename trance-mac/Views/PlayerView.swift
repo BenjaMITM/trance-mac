@@ -130,6 +130,12 @@ struct PlayerView: NSViewRepresentable {
     }
 }
 extension NSColor {
+    var hexRGBA: String {
+        let color = usingColorSpace(.deviceRGB) ?? .black
+        let components = [color.redComponent,color.greenComponent,color.blueComponent,color.alphaComponent]
+        return "#"+components.map { String(format:"%02X",Int((max(0,min(1,$0))*255).rounded())) }.joined()
+    }
+
     convenience init(hex: String, fallback: NSColor) {
         let cleaned = hex.trimmingCharacters(in: CharacterSet(charactersIn:"#"))
         guard [6,8].contains(cleaned.count), let value = UInt64(cleaned,radix:16) else { self.init(cgColor:fallback.cgColor)!; return }

@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-@main struct TranceApp: App {
+struct TranceApp: App {
     @NSApplicationDelegateAdaptor(TranceDelegate.self) private var delegate
     @State private var store = PlaybackStore()
     var body: some Scene {
@@ -50,18 +50,6 @@ import AppKit
             let url = options.session ?? URL(fileURLWithPath:FileManager.default.currentDirectoryPath).appendingPathComponent("default.json")
             if options.session != nil || FileManager.default.fileExists(atPath:url.path) {
                 let session = url.pathExtension == "session" ? try LegacyImporter.importSession(url) : try Session.load(url)
-                if options.lint {
-                    for (_,source) in BuiltinPatterns.sources { var parser = try PatternParser(source); _ = try parser.parse() }
-                    for program in session.json["program_map"].object.values {
-                        let pulsed = program["entrainment"]["layer"].array.filter { $0["pulse_hz"].number > 0 }.max { $0["amplitude_db"].number <= $1["amplitude_db"].number }
-                        let pulse = pulsed?["pulse_hz"].number ?? 0
-                        let beat = pulse > 0 ? Int((program["global_fps"].number/pulse).rounded()) : 0
-                        for pattern in program["custom_visual_pattern"].array { var parser = try PatternParser(String(contentsOf:session.resolve(pattern["file"].string),encoding:.utf8),beat:beat); _ = try parser.parse() }
-                    }
-                    print("Session and patterns valid")
-                    exit(0)
-                }
-                if let archive = options.archive { try ArchiveExporter.export(session,to:archive); print("Exported \(archive.path)"); exit(0) }
                 store.install(session)
             } else if options.lint || options.archive != nil { throw TranceError("Supply a session file") }
             if let system = options.system { store.system = try JSONDecoder().decode(JSONValue.self,from:Data(contentsOf:system)) }
