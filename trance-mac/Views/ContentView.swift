@@ -4,7 +4,7 @@ struct ContentView: View {
     @Bindable var store: PlaybackStore
     var body: some View {
         HSplitView {
-            if store.showControls { ControlPanel(store:store).frame(minWidth:300,idealWidth:350,maxWidth:500) }
+            if store.showControls { ControlPanel(store:store).frame(minWidth:380,idealWidth:420,maxWidth:560) }
             ZStack(alignment:.topLeading) {
                 PlayerView(store:store)
                 if store.session == nil {
@@ -24,15 +24,15 @@ struct ContentView: View {
                         ForEach(store.diagnostics,id:\.self) { Text($0) }
                     }.font(.system(.caption,design:.monospaced)).padding().background(.regularMaterial)
                 }
-            }.frame(minWidth:480,minHeight:400)
+            }.frame(minWidth:480,minHeight:640)
         }
         .toolbar {
-            Button("Open Session",systemImage:"folder",action:store.open)
+            Button("Open session file…",systemImage:"folder",action:store.open).help("Open a saved Trance session")
             Button(store.paused ? "Resume" : "Pause",systemImage:store.paused ? "play.fill" : "pause.fill") { store.paused.toggle() }.disabled(store.session == nil)
             Button(store.muted ? "Unmute" : "Mute",systemImage:store.muted ? "speaker.slash" : "speaker.wave.2") { store.muted.toggle() }
-            Button("Controls",systemImage:"sidebar.left") { store.showControls.toggle() }
+            Button(store.showControls ? "Hide controls" : "Show controls",systemImage:"sidebar.left") { store.showControls.toggle() }
         }
-        .alert("Trance",isPresented:Binding(get:{ store.message != nil },set:{ if !$0 { store.message = nil } })) { Button("OK") { store.message = nil } } message: { Text(store.message ?? "") }
+        .alert("Unable to complete action",isPresented:Binding(get:{ store.message != nil },set:{ if !$0 { store.message = nil } })) { Button("OK") { store.message = nil } } message: { Text(store.message ?? "") }
         .task {
             store.start()
             while !Task.isCancelled {

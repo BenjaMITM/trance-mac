@@ -27,20 +27,61 @@ final class DesktopAcceptanceTests: XCTestCase {
         app.launchArguments = [session.path, "--muted"]; app.launch()
         defer { app.terminate() }
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 15))
-        XCTAssertTrue(app.buttons["Pause"].waitForExistence(timeout: 5))
-        app.buttons["Pause"].click(); XCTAssertTrue(app.buttons["Resume"].exists)
-        app.buttons["Resume"].click(); XCTAssertTrue(app.buttons["Pause"].exists)
-        app.buttons["Unmute"].click(); XCTAssertTrue(app.buttons["Mute"].exists)
-        app.buttons["Mute"].click()
-        app.buttons["Controls"].click(); XCTAssertFalse(app.textFields["program-name"].exists)
-        app.buttons["Controls"].click()
-        app.activate()
-        app.disclosureTriangles["Visuals"].click()
-        app.disclosureTriangles["Program"].click()
+        let playback = app.buttons["toggle-playback"]
+        XCTAssertTrue(playback.waitForExistence(timeout: 5))
+        playback.click(); XCTAssertTrue(app.staticTexts["Paused"].exists)
+        playback.click(); XCTAssertTrue(app.staticTexts["Playing"].exists)
+        app.buttons["toggle-sound"].click(); XCTAssertTrue(app.staticTexts["On"].exists)
+        app.buttons["toggle-sound"].click(); XCTAssertTrue(app.staticTexts["Muted"].exists)
+        func clickInPage(_ element: XCUIElement) {
+            let scroll = app.scrollViews.firstMatch
+            for _ in 0..<60 {
+                if scroll.frame.contains(element.frame) { break }
+                scroll.scroll(byDeltaX: 0, deltaY: max(-60, min(60, scroll.frame.midY - element.frame.midY)))
+            }
+            XCTAssertTrue(scroll.frame.contains(element.frame), "Control must be visible before clicking")
+            element.click()
+        }
+        clickInPage(app.checkBoxes["pin-visual-accelerate"])
+        var saved = try JSONSerialization.jsonObject(with: Data(contentsOf: session)) as! [String: Any]
+        var programs = saved["program_map"] as! [String: Any]
+        var program = programs["default"] as! [String: Any]
+        let visuals = program["visual_type"] as! [[String: Any]]
+        XCTAssertEqual(visuals.first { $0["type"] as? String == "accelerate" }?["pinned"] as? Bool, true)
+        clickInPage(app.buttons["play-visual-animation"])
+        let actionCapture = XCTAttachment(screenshot: app.windows.firstMatch.screenshot()); actionCapture.name = "Visual action state"; actionCapture.lifetime = .keepAlways; add(actionCapture)
+        XCTAssertTrue(app.staticTexts["Manual visual"].exists)
+        XCTAssertTrue(app.staticTexts["Playing Animations & captions. Automatic selection is suspended."].exists)
+        clickInPage(app.buttons["automatic-visuals"])
+        XCTAssertTrue(app.staticTexts["Automatic"].exists)
+        func page(_ title: String) {
+            app.popUpButtons["control-page"].click()
+            app.menuItems[title].click()
+        }
+        page("Picture & text")
+        app.checkBoxes["reverse-spiral"].click()
+        saved = try JSONSerialization.jsonObject(with: Data(contentsOf: session)) as! [String: Any]
+        programs = saved["program_map"] as! [String: Any]; program = programs["default"] as! [String: Any]
+        XCTAssertEqual(program["reverse_spiral_direction"] as? Bool, true)
+        page("Sound")
+        app.buttons["enable-tones"].click()
+        XCTAssertTrue(app.staticTexts["Synthesized tones are on"].exists)
+        saved = try JSONSerialization.jsonObject(with: Data(contentsOf: session)) as! [String: Any]
+        programs = saved["program_map"] as! [String: Any]; program = programs["default"] as! [String: Any]
+        XCTAssertEqual(((program["entrainment"] as? [String: Any])?["layer"] as? [Any])?.count, 2)
+        clickInPage(app.buttons["add-tone"])
+        saved = try JSONSerialization.jsonObject(with: Data(contentsOf: session)) as! [String: Any]
+        programs = saved["program_map"] as! [String: Any]; program = programs["default"] as! [String: Any]
+        XCTAssertEqual(((program["entrainment"] as? [String: Any])?["layer"] as? [Any])?.count, 3)
+        clickInPage(app.buttons["disable-tones"])
+        XCTAssertTrue(app.staticTexts["Synthesized tones are off"].exists)
+        page("Saved programs")
         let field = app.textFields["program-name"]
         XCTAssertTrue(field.waitForExistence(timeout: 5)); field.click(); field.typeText("Acceptance Program")
-        app.buttons["Duplicate Current"].click()
-        let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: session)) as! [String: Any]
+        page("Picture & text"); page("Saved programs")
+        XCTAssertEqual(field.value as? String, "Acceptance Program", "Unsaved editor drafts must survive page navigation")
+        app.buttons["Copy current program with this name"].click()
+        saved = try JSONSerialization.jsonObject(with: Data(contentsOf: session)) as! [String: Any]
         XCTAssertNotNil((saved["program_map"] as? [String: Any])?["Acceptance Program"])
         let capture = app.windows.firstMatch.screenshot()
         let rendered = try XCTUnwrap(NSBitmapImageRep(data: capture.pngRepresentation))
@@ -52,6 +93,6 @@ final class DesktopAcceptanceTests: XCTestCase {
             }
         }
         XCTAssertGreaterThan(colorfulSamples, 100, "Generated media must be visible in the actual playback window")
-        let screenshot = XCTAttachment(screenshot: capture); screenshot.name = "Desktop controls, saved program and rendered media"; screenshot.lifetime = .keepAlways; add(screenshot)
+        let screenshot = XCTAttachment(screenshot: capture); screenshot.name = "Redesigned controls, applied settings and rendered media"; screenshot.lifetime = .keepAlways; add(screenshot)
     }
 }

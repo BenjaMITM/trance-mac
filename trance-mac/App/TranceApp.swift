@@ -94,10 +94,19 @@ struct SystemSettings: View {
     let store: PlaybackStore
     var body: some View {
         Form {
-            Toggle("VSync",isOn:Binding(get:{store.system["enable_vsync"].bool},set:{store.system["enable_vsync"] = .bool($0); store.saveSystem()}))
-            Stepper(value:Binding(get:{Int(store.system["image_cache_size"].number)},set:{store.system["image_cache_size"] = .number(Double($0)); store.saveSystem()}),in:16...4096) { Text("Image cache: \(Int(store.system["image_cache_size"].number))") }
-            Slider(value:Binding(get:{store.system["draw_depth"].number},set:{store.system["draw_depth"] = .number($0); store.saveSystem()}),in:0...1) { Text("Draw depth") }
-            Text("Settings are saved beside the session as system.json.").foregroundStyle(.secondary)
-        }.padding().frame(width:440)
+            Text("Playback cache").font(.title2.bold())
+            Stepper(value: Binding(get: { Int(store.system["image_cache_size"].number) }, set: {
+                store.system["image_cache_size"] = .number(Double($0)); store.saveSystem()
+            }), in: 16...4096) { Text("Maximum cached still images: \(Int(store.system["image_cache_size"].number))") }
+            Text("A larger cache keeps more decoded images in memory. Changes are saved to the system settings file.").foregroundStyle(.secondary)
+            if let session = store.session {
+                Text((store.systemURL ?? session.root.appendingPathComponent("system.json")).path).font(.caption).textSelection(.enabled)
+            }
+            DisclosureGroup("Preserved compatibility settings") {
+                LabeledContent("Imported synchronization preference", value: store.system["enable_vsync"].bool ? "On" : "Off")
+                LabeledContent("Headset depth (deferred)", value: String(format: "%.2f", store.system["draw_depth"].number))
+                Text("These imported values are retained. Desktop motion is controlled by visual timeline speed on the Picture & text page; headset support remains deferred.").font(.caption).foregroundStyle(.secondary)
+            }
+        }.padding().frame(width: 480)
     }
 }

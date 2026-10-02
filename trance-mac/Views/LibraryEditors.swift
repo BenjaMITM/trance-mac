@@ -1,4 +1,7 @@
 import SwiftUI
+import AppKit
+
+private struct PhraseDraft: Identifiable { let id = UUID(); var text: String }
 
 struct ThemeEditor: View {
     let store: PlaybackStore
@@ -12,7 +15,7 @@ struct ThemeEditor: View {
     @State private var animations = ""
     @State private var fonts = ""
     @State private var audio = ""
-    @State private var phrases = "[]"
+    @State private var phrases: [PhraseDraft] = []
     @State private var weight = 1
     @State private var pinned = false
     @State private var status = ""
@@ -20,28 +23,65 @@ struct ThemeEditor: View {
         VStack(alignment: .leading, spacing: 10) {
             ThemeControls(store: store)
             Divider()
-            Picker("Edit theme", selection: $selection) {
-                Text("New theme").tag("")
+            Picker("Library to edit", selection: $selection) {
+                Text("Create a new library").tag("")
                 ForEach(store.themeNames, id: \.self) { Text($0).tag($0) }
             }.onChange(of: selection) { load() }
-            TextField("Theme name", text: $name)
-            Toggle("Scan directory", isOn: $scanEnabled)
+            Text("Edit library details").font(.headline)
+            TextField("Library name", text: $name)
+            Toggle("Find media by scanning a folder", isOn: $scanEnabled)
             if scanEnabled {
-                TextField("Directory relative to session", text: $directory)
-                Toggle("Inherit media from parent themes", isOn: $inherit)
-                lines("Excluded paths", text: $excluded)
+                TextField("Folder path inside this session", text: $directory)
+                Button("Choose folder to scan…") { selectDirectory() }
+                Toggle("Include media from parent folders", isOn: $inherit)
+                lines("Files to exclude from scanning", text: $excluded)
             }
-            lines("Image paths", text: $images)
-            lines("Animation paths", text: $animations)
-            lines("Font paths", text: $fonts)
-            lines("Audio paths", text: $audio)
-            lines("Phrases (JSON array of strings)", text: $phrases)
-            Text("One entry per line. Paths are relative to the session folder.").font(.caption).foregroundStyle(.secondary)
-            Stepper("Weight in \(store.programName): \(weight)", value: $weight, in: 0...1000)
-            Toggle("Saved theme pin in this program", isOn: $pinned)
-            Button("Save Theme", action: save).disabled(name.isEmpty)
+            assetList("Images", text: $images)
+            assetList("Animations", text: $animations)
+            assetList("Fonts", text: $fonts)
+            assetList("Recorded audio", text: $audio)
+            Text("Phrases shown in visuals").font(.headline)
+            ForEach($phrases) { $phrase in
+                VStack(alignment: .leading) {
+                    TextEditor(text: $phrase.text).frame(height: 70).accessibilityLabel("Phrase text")
+                    Button("Remove this phrase") { phrases.removeAll { $0.id == phrase.id } }
+                }
+            }
+            Button("Add a phrase") { phrases.append(PhraseDraft(text: "")) }
+            Text("Choose files within the session folder. Advanced path lists accept one relative file path per line.").font(.caption).foregroundStyle(.secondary)
+            Stepper("Selection frequency in \(store.programName): \(weight)", value: $weight, in: 0...1000)
+            Toggle("Only select this library (or other marked libraries)", isOn: $pinned)
+            Button("Save media library", action: save).disabled(name.isEmpty)
             if !status.isEmpty { Text(status).font(.caption).textSelection(.enabled) }
         }.onChange(of: store.programName) { load() }
+    }
+    private func assetList(_ label: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("\(label): \(entries(text.wrappedValue).count) explicitly selected files").font(.headline)
+            Button("Choose \(label.lowercased()) files…") {
+                let panel = NSOpenPanel(); panel.allowsMultipleSelection = true
+                guard panel.runModal() == .OK else { return }
+                do {
+                    let paths = try panel.urls.map(relativePath)
+                    let combined = Array(Set(entries(text.wrappedValue).map(\.string) + paths)).sorted()
+                    text.wrappedValue = combined.joined(separator: "\n")
+                    status = "Files selected. Save media library to apply."
+                } catch { status = error.localizedDescription }
+            }
+            DisclosureGroup("Advanced: \(label.lowercased()) file paths") { lines("Relative paths", text: text) }
+        }
+    }
+    private func relativePath(_ url: URL) throws -> String {
+        guard let root = store.session?.root.standardizedFileURL.path else { throw TranceError("Open a session first") }
+        let path = url.standardizedFileURL.path
+        guard path == root || path.hasPrefix(root + "/") else { throw TranceError("Choose a file or folder inside the session folder: \(root)") }
+        return path == root ? "." : String(path.dropFirst(root.count + 1))
+    }
+    private func selectDirectory() {
+        let panel = NSOpenPanel(); panel.canChooseFiles = false; panel.canChooseDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do { directory = try relativePath(url); status = "Folder selected. Save media library to scan and apply." }
+        catch { status = error.localizedDescription }
     }
     private func lines(_ label: String, text: Binding<String>) -> some View {
         VStack(alignment: .leading) {
@@ -63,7 +103,7 @@ struct ThemeEditor: View {
         animations = theme["animation_path"].array.map(\.string).joined(separator: "\n")
         fonts = theme["font_path"].array.map(\.string).joined(separator: "\n")
         audio = theme["audio_path"].array.map(\.string).joined(separator: "\n")
-        phrases = (try? JSONValue.array(theme["text_line"].array).text()) ?? "[]"
+        phrases = theme["text_line"].array.map { PhraseDraft(text: $0.string) }
         let row = store.program["enabled_theme"].array.first { $0["theme_name"].string == selection }
         weight = Int(row?["random_weight"].number ?? 1); pinned = row?["pinned"].bool ?? false; status = ""
     }
@@ -72,10 +112,10 @@ struct ThemeEditor: View {
         var definition: JSONValue = .object(["image_path": .array(entries(images)), "animation_path": .array(entries(animations)), "font_path": .array(entries(fonts)), "audio_path": .array(entries(audio))])
         if scanEnabled { definition["scan"] = .object(["dir": .string(directory), "inherit": .bool(inherit), "exclude": .array(entries(excluded))]) }
         do {
-            definition["text_line"] = try JSONDecoder().decode(JSONValue.self, from: Data(phrases.utf8))
+            definition["text_line"] = .array(phrases.map { .string($0.text) })
             let updated = try LibraryAuthoring.theme(session: session, original: selection.isEmpty ? nil : selection, name: name, definition: definition, program: store.programName, weight: weight, pinned: pinned)
             try updated.save(); store.session = updated; store.editorText = try updated.json.text(); store.chooseThemes()
-            selection = name; status = "Saved"
+            selection = name; status = "Media library saved and applied."
         } catch { status = error.localizedDescription }
     }
 }
@@ -97,18 +137,18 @@ struct VariableEditor: View {
                 }
             }
             Divider()
-            Picker("Edit variable", selection: $selection) {
-                Text("New variable").tag("")
+            Picker("Condition to edit", selection: $selection) {
+                Text("Create a new condition").tag("")
                 ForEach(store.session?.json["variable_map"].object.keys.sorted() ?? [], id: \.self) { Text($0).tag($0) }
             }.onChange(of: selection) { load() }
-            TextField("Name", text: $name)
-            TextField("Description", text: $description)
+            TextField("Condition name", text: $name)
+            TextField("What this condition represents", text: $description)
             Text("Allowed values, one per line").font(.caption)
             TextEditor(text: $values).frame(height: 90)
             Picker("Default value", selection: $defaultValue) { ForEach(allowed, id: \.self) { Text($0).tag($0) } }
-            Button("Save Variable", action: save).disabled(name.isEmpty || allowed.isEmpty)
+            Button("Save playlist condition", action: save).disabled(name.isEmpty || allowed.isEmpty)
             if !status.isEmpty { Text(status).font(.caption).textSelection(.enabled) }
-        }
+        }.onChange(of: values) { if !allowed.contains(defaultValue) { defaultValue = allowed.first ?? "" } }
     }
     private func load() {
         let row = store.session?.json["variable_map"][selection] ?? .null

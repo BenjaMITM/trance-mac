@@ -16,24 +16,24 @@ struct PatternEditor: View {
                 Text("New pattern").tag("")
                 ForEach(store.customVisuals,id:\.patternName) { Text($0["name"].string).tag($0["name"].string) }
             }.onChange(of:selection) { loadSelection() }
-            TextField("Name",text:$name)
+            TextField("Pattern name",text:$name)
             if selection.isEmpty {
                 HStack {
-                    Picker("Recipe",selection:$template) { ForEach(BuiltinPatterns.sources.keys.sorted(),id:\.self) { Text($0).tag($0) } }
-                    Button("Copy Recipe") { source = BuiltinPatterns.sources[template] ?? ""; status = "" }
+                    Picker("Recipe",selection:$template) { ForEach(BuiltinPatterns.sources.keys.sorted(),id:\.self) { Text(VisualLabels.title($0)).tag($0) } }
+                    Button("Use this starting recipe") { source = BuiltinPatterns.sources[template] ?? ""; status = "" }
                 }
             }
             TextEditor(text:$source).font(.system(.caption,design:.monospaced)).frame(minHeight:220)
-            Stepper("Weight: \(weight)",value:$weight,in:0...1000)
+            Stepper("Selection frequency: \(weight)",value:$weight,in:0...1000)
             Toggle("Enabled",isOn:$enabled)
-            Toggle("Pinned visual",isOn:$pinned).disabled(!enabled)
+            Toggle("Only select this visual (or other marked visuals)",isOn:$pinned).disabled(!enabled)
             HStack {
-                Button("Validate",action:validate).disabled(source.isEmpty)
-                Button("Save Pattern",action:save).disabled(name.isEmpty || source.isEmpty)
-                Button("Preview",action:preview).disabled(source.isEmpty)
+                Button("Check recipe",action:validate).disabled(source.isEmpty)
+                Button("Save custom pattern",action:save).disabled(name.isEmpty || source.isEmpty)
+                Button("Preview without saving",action:preview).disabled(source.isEmpty)
             }
             if !status.isEmpty { Text(status).font(.caption).textSelection(.enabled) }
-            Text("Save writes the pattern file and session. Preview is a runtime override.").font(.caption).foregroundStyle(.secondary)
+            Text("Save writes the recipe file and session settings. Preview temporarily plays this recipe; return to automatic visuals on the Playback page to finish previewing.").font(.caption).foregroundStyle(.secondary)
         }
         .onChange(of:store.programName) { selection = ""; name = ""; source = ""; status = "" }
     }

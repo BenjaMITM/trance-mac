@@ -14,13 +14,15 @@ import Observation
     var previousTheme = ""
     var nextTheme = ""
     var frame = RenderFrame()
-    var paused = false { didSet { audio.paused = paused || hidden } }
-    var muted = false { didSet { audio.muted = muted || hidden } }
+    var paused = false { didSet { audio.paused = paused || hidden; controlFeedback = paused ? "Playback paused, including audio." : "Playback resumed." } }
+    var muted = false { didSet { audio.muted = muted || hidden; controlFeedback = muted ? "All audio muted. Visual playback continues." : "Audio is on." } }
     var hidden = false
     var overlay = false { didSet { applyWindow() } }
     var opacity = 0.35 { didSet { applyWindow() } }
     var showControls = true
     var showDiagnostics = false
+    var controlFeedback = ""
+    var lastSavedAt: Date?
     var message: String?
     var diagnostics: [String] = []
     var themePins: [String] = []
@@ -135,7 +137,7 @@ import Observation
         let original = programName
         let updated = try LibraryAuthoring.program(session: session, original: rename ? original : nil,
             name: name, copyFrom: copy ? original : nil)
-        try updated.save()
+        try updated.save(); lastSavedAt = Date()
         self.session = updated; editorText = try updated.json.text()
         if rename {
             playlist.renameProgram(from: original, to: name)
@@ -145,12 +147,13 @@ import Observation
     }
     func selectProgram(_ name: String) {
         guard programNames.contains(name) else { return }
-        manualProgram = name; manualProgramItem = playlist.current; programName = name
+        manualProgram = name; manualProgramItem = playlist.current; programName = name; forcedVisual = nil
+        controlFeedback = "Playing program \(name) until the next playlist item."
         chooseThemes(); audio.configure(program["entrainment"])
         do { try chooseVisual() } catch { message = error.localizedDescription }
     }
     func releaseProgram() {
-        manualProgram = nil
+        manualProgram = nil; forcedVisual = nil; controlFeedback = "Program selection follows the playlist."
         if !playlist.program.isEmpty { programName = playlist.program }
         chooseThemes(); audio.configure(program["entrainment"])
         do { try chooseVisual() } catch { message = error.localizedDescription }
@@ -199,8 +202,8 @@ import Observation
         runtime = PatternRuntime(root: node); visualName = name
         registers = [:]; selections = [:]; chances = [:]; counts = [:]; alternates = [:]
     }
-    func forceVisual(_ name: String) { do { try forceSource(name: name,source: source(name)); forcedVisual = name } catch { message = error.localizedDescription } }
-    func releaseVisual() { forcedVisual = nil; do { try chooseVisual() } catch { message = error.localizedDescription } }
+    func forceVisual(_ name: String) { do { try forceSource(name: name,source: source(name)); forcedVisual = name; controlFeedback = "Playing \(VisualLabels.title(name)). Automatic selection is suspended." } catch { message = error.localizedDescription } }
+    func releaseVisual() { forcedVisual = nil; controlFeedback = "Automatic visual selection resumed."; do { try chooseVisual() } catch { message = error.localizedDescription } }
     private func lane(_ draw: PatternDraw) -> String {
         switch draw.effect.content {
         case "primary": return primaryTheme
@@ -280,11 +283,25 @@ import Observation
         do { let json = try JSONDecoder().decode(JSONValue.self,from: Data(editorText.utf8)); let updated = try Session(json: json,url: session.url); try updated.save(); install(updated) } catch { message = error.localizedDescription }
     }
     func updateProgram(_ key: String, _ value: JSONValue, save: Bool = true) {
-        session?.json["program_map"][programName][key] = value
-        audio.configure(program["entrainment"])
-        if save { autosave() }
+        guard var updated = session else { return }
+        updated.json["program_map"][programName][key] = value
+        do {
+            if save { try updated.save(); lastSavedAt = Date() }
+            session = updated; editorText = try updated.json.text()
+            audio.configure(program["entrainment"])
+            if key == "enabled_theme" { chooseThemes() }
+            if key == "visual_type", forcedVisual == nil { try chooseVisual() }
+            controlFeedback = key == "visual_type" && forcedVisual != nil
+                ? "Selection settings saved. Return to automatic visuals to use them."
+                : (save ? "Program settings applied and saved." : "Program settings applied for this playback run.")
+        } catch { message = error.localizedDescription; controlFeedback = "Could not apply this change: \(error.localizedDescription)" }
     }
-    func autosave() { do { try session?.save(); if let session { editorText = try session.json.text() } } catch { message = error.localizedDescription } }
+    func autosave() {
+        do {
+            try session?.save()
+            if let session { editorText = try session.json.text(); lastSavedAt = Date(); controlFeedback = "Session saved to \(session.url.lastPathComponent)." }
+        } catch { message = error.localizedDescription; controlFeedback = "Session could not be saved." }
+    }
     func exportJSON() { guard let session else { return }; let panel = NSSavePanel(); panel.nameFieldStringValue = "export.session.json"; if panel.runModal() == .OK, let url = panel.url { do { try session.save(to: url) } catch { message = error.localizedDescription } } }
     func exportArchive() {
         guard let session else { return }

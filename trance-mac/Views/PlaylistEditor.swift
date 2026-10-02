@@ -40,56 +40,56 @@ struct PlaylistEditor: View {
     private var names: [String] { store.session?.json["playlist"].object.keys.sorted() ?? [] }
     var body: some View {
         VStack(alignment:.leading,spacing:10) {
-            Picker("Item",selection:$selection) {
+            Picker("Playlist item to edit",selection:$selection) {
                 Text("New item").tag("")
                 ForEach(names,id:\.self) { Text($0).tag($0) }
             }.onChange(of:selection) { load() }
-            TextField("Name",text:$name)
-            Toggle("Session entry point",isOn:$first)
-            Toggle("Subroutine",isOn:$subroutine)
+            TextField("Playlist item name",text:$name)
+            Toggle("Start the session with this item",isOn:$first)
+            Toggle("Run a sequence of other playlist items",isOn:$subroutine)
             if subroutine {
                 Text("Children run in order; repeated names are allowed.").font(.caption).foregroundStyle(.secondary)
                 ForEach($steps) { $step in
                     HStack {
-                        Picker("Child",selection:$step.name) { ForEach(names,id:\.self) { Text($0).tag($0) } }
+                        Picker("Item to run",selection:$step.name) { ForEach(names,id:\.self) { Text($0).tag($0) } }
                         Button("Up") { moveStep(step.id,by:-1) }
                         Button("Down") { moveStep(step.id,by:1) }
                         Button("Remove") { steps.removeAll { $0.id == step.id } }
                     }
                 }
-                Button("Add Child") { if let name = names.first { steps.append(StepDraft(name:name)) } }.disabled(names.isEmpty)
+                Button("Add item to sequence") { if let name = names.first { steps.append(StepDraft(name:name)) } }.disabled(names.isEmpty)
             } else {
                 Picker("Program",selection:$program) { ForEach(store.programNames,id:\.self) { Text($0).tag($0) } }
                 Stepper("Duration: \(seconds) seconds",value:$seconds,in:0...Int(UInt32.max))
                 Text("Zero duration permits immediate branching. No eligible branch holds the top-level item.").font(.caption).foregroundStyle(.secondary)
             }
-            DisclosureGroup("Branches (\(branches.count))") {
+            DisclosureGroup("What plays next (\(branches.count))") {
                 ForEach($branches) { $branch in
                     GroupBox {
                         VStack {
-                            Picker("Destination",selection:$branch.destination) { ForEach(names,id:\.self) { Text($0).tag($0) } }
-                            Stepper("Weight: \(branch.weight)",value:$branch.weight,in:0...1000)
+                            Picker("Next playlist item",selection:$branch.destination) { ForEach(names,id:\.self) { Text($0).tag($0) } }
+                            Stepper("Selection frequency: \(branch.weight)",value:$branch.weight,in:0...1000)
                             Picker("Condition",selection:$branch.variable) {
-                                Text("Unconditional").tag("")
+                                Text("Always eligible").tag("")
                                 ForEach(store.session?.json["variable_map"].object.keys.sorted() ?? [],id:\.self) { Text($0).tag($0) }
                             }
-                            if !branch.variable.isEmpty { TextField("Required value",text:$branch.value) }
+                            if !branch.variable.isEmpty { Picker("Required condition value", selection: $branch.value) { ForEach(store.session?.json["variable_map"][branch.variable]["value"].array.map(\.string) ?? [], id: \.self) { Text($0).tag($0) } } }
                             Button("Remove Branch") { branches.removeAll { $0.id == branch.id } }
                         }
                     }
                 }
-                Button("Add Branch") { if let name = names.first { branches.append(BranchDraft(destination:name)) } }.disabled(names.isEmpty)
+                Button("Add possible next item") { if let name = names.first { branches.append(BranchDraft(destination:name)) } }.disabled(names.isEmpty)
             }
-            DisclosureGroup("Audio Cues (\(cues.count))") {
+            DisclosureGroup("Recorded audio actions (\(cues.count))") {
                 ForEach($cues) { $cue in
                     GroupBox {
                         VStack {
                             Picker("Action",selection:$cue.type) { Text("Play").tag("play"); Text("Stop").tag("stop"); Text("Fade").tag("fade") }
                             Stepper("Channel: \(cue.channel)",value:$cue.channel,in:0...1000)
                             if cue.type == "play" {
-                                TextField("Relative audio file",text:$cue.path)
-                                Toggle("Next unused channel",isOn:$cue.unused)
-                                Toggle("Loop",isOn:$cue.loop)
+                                TextField("Audio file path inside this session",text:$cue.path)
+                                Toggle("Use the next available audio channel",isOn:$cue.unused)
+                                Toggle("Repeat until stopped",isOn:$cue.loop)
                             }
                             if cue.type != "stop" { Stepper("Volume: \(cue.volume)%",value:$cue.volume,in:0...100) }
                             if cue.type == "fade" { Stepper("Fade: \(cue.seconds) seconds",value:$cue.seconds,in:0...Int(UInt32.max)) }
@@ -97,7 +97,7 @@ struct PlaylistEditor: View {
                         }
                     }
                 }
-                Button("Add Audio Cue") { cues.append(CueDraft()) }
+                Button("Add recorded audio action") { cues.append(CueDraft()) }
             }
             Button("Save Playlist Item",action:save).disabled(name.isEmpty || (!subroutine && program.isEmpty))
             if !status.isEmpty { Text(status).font(.caption).textSelection(.enabled) }

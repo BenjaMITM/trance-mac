@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-10-02
+
+- Reorganized controls into Playback, Picture & text, Sound, Media libraries, Playlist, Saved programs, Custom patterns, Playlist conditions and Session files.
+- Added persistent playback/program/visual/audio status, labeled playback buttons, action feedback and save timestamps.
+- Replaced raw visual names and ambiguous pin/weight labels with readable names, descriptions, selection-frequency explanations and explicit manual/automatic actions.
+- Applied visual restrictions and media settings immediately; kept program updates unchanged when saving fails.
+- Added visible audio parameter values and units, tone explanations, named add/remove/off actions and a muted/paused notice.
+- Replaced phrase JSON entry with individual editable phrases and added file/folder selectors for library editing.
+- Preserved editor drafts across control-page navigation; renamed playlist/condition/pattern actions and hid inactive compatibility settings behind a read-only section.
+
+## 0.1.0 — Initial local release
 
 ### Added
 - Native macOS Xcode app with SwiftUI controls and an AppKit playback canvas.
