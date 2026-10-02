@@ -20,7 +20,7 @@ struct ControlPanel: View {
                     }
                     DisclosureGroup("Visuals",isExpanded:.constant(true)) { VisualControls(store:store) }
                     DisclosureGroup("Custom Patterns") { PatternEditor(store:store) }
-                    DisclosureGroup("Program") { ProgramControls(store:store) }
+                    DisclosureGroup("Program") { ProgramEditor(store:store); ProgramControls(store:store) }
                     DisclosureGroup("Themes") { ThemeEditor(store:store) }
                     DisclosureGroup("Playlist") { PlaylistEditor(store:store) }
                     DisclosureGroup("Audio") { AudioControls(store:store) }

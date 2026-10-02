@@ -227,3 +227,62 @@ private func fixture(_ json: JSONValue) throws -> Session {
     json = SessionSchema.defaultSystem; json["unknown"] = .bool(true)
     #expect(throws: TranceError.self) { try SessionSchema.checkedSystem(json) }
 }
+
+@Test func programRenamePreservesPlaybackTimingAndAllReferences() throws {
+    var json = minimal()
+    json["program_map"] = .object(["old": Session.defaultProgram])
+    json["first_playlist_item"] = .string("a")
+    json["playlist"] = .object(["a": .object(["standard": .object(["program": .string("old"), "play_time_seconds": .number(60)])]), "b": .object(["standard": .object(["program": .string("old")])])])
+    let session = try fixture(json)
+    var runner = PlaylistRunner(); _ = try runner.start(session: session)
+    _ = try runner.advance(12, session: session)
+    let updated = try LibraryAuthoring.program(session: session, original: "old", name: "new")
+    runner.renameProgram(from: "old", to: "new")
+    #expect(updated.programs == ["new"])
+    #expect(updated.json["program_map"]["new"] == session.json["program_map"]["old"])
+    #expect(updated.json["playlist"]["b"]["standard"]["program"].string == "new")
+    #expect(runner.program == "new")
+    #expect(runner.elapsed == 12)
+    #expect(try runner.advance(1, session: updated).isEmpty)
+    #expect(runner.current == "a")
+    #expect(runner.elapsed == 13)
+}
+
+@Test func programCopyPreservesDefinitionWithoutRewritingPlaylist() throws {
+    let session = try fixture(minimal())
+    let copied = try LibraryAuthoring.program(session: session, name: "copy", copyFrom: "default")
+    #expect(copied.json["program_map"]["copy"] == session.json["program_map"]["default"])
+    #expect(copied.json["playlist"] == session.json["playlist"])
+    #expect(throws: TranceError.self) { try LibraryAuthoring.program(session: copied, original: "default", name: "copy") }
+    #expect(throws: TranceError.self) { try LibraryAuthoring.program(session: session, name: "new", copyFrom: "missing") }
+    let fresh = try LibraryAuthoring.program(session: session, name: "fresh")
+    #expect(fresh.json["program_map"]["fresh"]["entrainment"] == Session.defaultProgram["entrainment"])
+}
+
+@Test func malformedPinnedCustomVisualCannotBlockValidPlayback() throws {
+    var program = Session.defaultProgram
+    program["custom_visual_pattern"] = .array([.object(["name": .string("broken"), "enabled": .bool(true), "pinned": .bool(true), "random_weight": .number(1)])])
+    let catalog = try VisualCatalog(program: program) { _ in "not a valid recipe" }
+    #expect(catalog.warnings.count == 1)
+    #expect(catalog.entries.count == 8)
+    #expect(catalog.choose(unit: 0)?.name != "broken")
+    program["visual_type"] = .array([])
+    let fallback = try VisualCatalog(program: program) { _ in throw TranceError("unreadable") }
+    #expect(fallback.choose(unit: 0)?.name == "parallel")
+}
+
+@Test func validVisualPinsExcludeUnpinnedRecipesAndDisabledFilesAreNotRead() throws {
+    var program = Session.defaultProgram
+    program["custom_visual_pattern"] = .array([
+        .object(["name": .string("pin"), "enabled": .bool(true), "pinned": .bool(true), "random_weight": .number(0)]),
+        .object(["name": .string("disabled"), "enabled": .bool(false)])])
+    var reads = 0
+    let catalog = try VisualCatalog(program: program) { row in
+        reads += 1; #expect(row["name"].string == "pin")
+        return BuiltinPatterns.sources["parallel"]!
+    }
+    #expect(reads == 1)
+    #expect(catalog.choose(unit: 0)?.name == "pin")
+    #expect(catalog.choose(unit: 0.999)?.name == "pin")
+    #expect(catalog.warnings.isEmpty)
+}

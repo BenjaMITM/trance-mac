@@ -34,6 +34,8 @@ import Observation
     @ObservationIgnored let audio = AudioService()
     @ObservationIgnored private var queuedAudio: Task<Void,Never>?
     @ObservationIgnored private var themeAudioGeneration = 0
+    @ObservationIgnored private var visualCatalog: VisualCatalog?
+    @ObservationIgnored private var visualCatalogKey = ""
     @ObservationIgnored private var runtime: PatternRuntime?
     @ObservationIgnored private var playlist = PlaylistRunner()
     @ObservationIgnored private var registers: [String: (String,Bool)] = [:]
@@ -125,8 +127,21 @@ import Observation
                 if let runtime, runtime.frame+1 >= runtime.root.span, forcedVisual != "runtime" { try chooseVisual() }
                 if let draws = runtime?.advance() { evaluate(draws) }
             }
-            diagnostics = runtime?.diagnostics ?? []
+            diagnostics = (runtime?.diagnostics ?? []) + (visualCatalog?.warnings ?? [])
         } catch { paused = true; message = error.localizedDescription }
+    }
+    func saveProgram(name: String, rename: Bool, copy: Bool) throws {
+        guard let session else { throw TranceError("Open a session first") }
+        let original = programName
+        let updated = try LibraryAuthoring.program(session: session, original: rename ? original : nil,
+            name: name, copyFrom: copy ? original : nil)
+        try updated.save()
+        self.session = updated; editorText = try updated.json.text()
+        if rename {
+            playlist.renameProgram(from: original, to: name)
+            if manualProgram == original { manualProgram = name }
+            programName = name
+        } else { selectProgram(name) }
     }
     func selectProgram(_ name: String) {
         guard programNames.contains(name) else { return }
@@ -152,14 +167,28 @@ import Observation
         nextTheme = WeightedChoice.choose(weighted) ?? primaryTheme
     }
     func chooseVisual() throws {
-        let builtin = program["visual_type"].array
-        let custom = customVisuals.filter { $0["enabled"].bool }
-        let hasPins = (builtin+custom).contains { $0["pinned"].bool }
-        var choices = builtin.filter { !hasPins || $0["pinned"].bool }.map { ($0["type"].string,$0["random_weight"].number > 0 ? $0["random_weight"].number : ($0["pinned"].bool ? 1 : 0)) }
-        choices += custom.filter { !hasPins || $0["pinned"].bool }.map { ($0["name"].string,$0["random_weight"].number > 0 ? $0["random_weight"].number : ($0["pinned"].bool ? 1 : 0)) }
-        let name = forcedVisual ?? WeightedChoice.choose(choices) ?? "parallel"
-        try forceSource(name: name,source: source(name))
+        if let forcedVisual { try forceSource(name: forcedVisual, source: source(forcedVisual)); return }
+        guard let session else { return }
+        var key = session.url.path + programName + (try program.text())
+        for row in customVisuals where row["enabled"].bool {
+            let url = try session.resolve(row["file"].string)
+            let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+            key += "|\(url.path)|\(attributes?[.modificationDate] ?? "missing")|\(attributes?[.size] ?? 0)"
+        }
+        if visualCatalog == nil || key != visualCatalogKey {
+            visualCatalog = try VisualCatalog(program: program) { row in
+                try String(contentsOf: session.resolve(row["file"].string), encoding: .utf8)
+            }
+            visualCatalogKey = key
+            for warning in visualCatalog?.warnings ?? [] {
+                try? FileHandle.standardError.write(contentsOf: Data((warning + "\n").utf8))
+            }
+        }
+        guard let selected = visualCatalog?.choose() else { throw TranceError("No playable visual") }
+        runtime = PatternRuntime(root: selected.node); visualName = selected.name
+        registers = [:]; selections = [:]; chances = [:]; counts = [:]; alternates = [:]
     }
+
     func source(_ name: String) throws -> String {
         if let source = BuiltinPatterns.sources[name == "simple" ? "parallel" : name] { return source }
         guard let custom = customVisuals.first(where: { $0["name"].string == name }), let session else { throw TranceError("Unknown visual \(name)") }

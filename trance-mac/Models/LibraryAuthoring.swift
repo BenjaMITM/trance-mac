@@ -6,6 +6,23 @@ public enum LibraryAuthoring {
         guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !name.hasPrefix("_") else { throw TranceError("Name must be nonempty and must not begin with _") }
         guard map.object[name] == nil || original == name else { throw TranceError("An entry named \(name) already exists") }
     }
+    public static func program(session: Session, original: String? = nil, name: String, copyFrom: String? = nil) throws -> Session {
+        try checkName(name, original: original, map: session.json["program_map"])
+        guard original == nil || copyFrom == nil else { throw TranceError("Choose rename or copy, not both") }
+        let source = original ?? copyFrom
+        if let source, !session.programs.contains(source) { throw TranceError("Unknown program: \(source)") }
+        var json = session.json
+        let definition = source.map { session.json["program_map"][$0] } ?? Session.defaultProgram
+        var programs = json["program_map"].object
+        if let original, original != name {
+            programs.removeValue(forKey: original)
+            for key in json["playlist"].object.keys where json["playlist"][key]["standard"]["program"].string == original {
+                json["playlist"][key]["standard"]["program"] = .string(name)
+            }
+        }
+        programs[name] = definition; json["program_map"] = .object(programs)
+        return try Session(json: json, url: session.url)
+    }
     public static func theme(session: Session, original: String?, name: String, definition: JSONValue, program: String, weight: Int, pinned: Bool) throws -> Session {
         try checkName(name, original: original, map: session.json["theme_map"])
         guard session.programs.contains(program), weight >= 0, weight <= Int(UInt32.max) else { throw TranceError("Invalid program or theme weight") }

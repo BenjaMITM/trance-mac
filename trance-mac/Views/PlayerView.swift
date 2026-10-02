@@ -7,10 +7,11 @@ import CoreText
 struct PlayerView: NSViewRepresentable {
     let store: PlaybackStore
     func makeNSView(context: Context) -> PlayerCanvas { let view = PlayerCanvas(); view.store = store; return view }
-    func updateNSView(_ view: PlayerCanvas, context: Context) { view.store = store; view.needsDisplay = true }
+    func updateNSView(_ view: PlayerCanvas, context: Context) { view.store = store; view.synchronizePlayback(); view.needsDisplay = true }
 }
 @MainActor final class PlayerCanvas: NSView {
     weak var store: PlaybackStore?
+    private var sessionURL: URL?
     private var cache: [String: NSImage] = [:]
     private let videos = VideoFrameService()
     private var lastVideoImages: [String:NSImage] = [:]
@@ -18,6 +19,14 @@ struct PlayerView: NSViewRepresentable {
     private var gifDurations: [String: [Double]] = [:]
     private var failed = Set<String>()
     private var registeredFonts: [String: String] = [:]
+    func synchronizePlayback() {
+        if sessionURL != store?.session?.url {
+            sessionURL = store?.session?.url
+            videos.reset(); cache.removeAll(); lastVideoImages.removeAll()
+            gifSources.removeAll(); gifDurations.removeAll(); failed.removeAll()
+        }
+        if store?.paused == true || store?.hidden == true { videos.pauseAll() }
+    }
     override var acceptsFirstResponder: Bool { true }
     override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); window?.identifier = NSUserInterfaceItemIdentifier("player"); store?.applyWindow() }
     override func keyDown(with event: NSEvent) {
@@ -34,6 +43,9 @@ struct PlayerView: NSViewRepresentable {
     override func draw(_ dirtyRect: NSRect) {
         guard let store else { return }
         NSColor.black.setFill(); bounds.fill()
+        synchronizePlayback()
+        // Resume only players used by this frame; previously selected clips stay paused.
+        videos.pauseAll()
         let frame = store.frame
         for layer in frame.layers {
             guard let image = image(layer.path,animated: layer.animated,time: frame.time), image.size.width > 0, image.size.height > 0 else { continue }

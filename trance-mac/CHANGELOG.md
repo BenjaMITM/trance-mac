@@ -15,6 +15,8 @@
 - Theme/media/scan and variable editors with reference-preserving renames.
 - Strict system settings validation and preservation of explicit settings destinations.
 
+- Program creation, duplication and rename without restarting playlist clocks.
+
 ### Fixed
 - Core Audio callback isolation causing startup crashes in the first build.
 - Exhausted subroutines restarting, incorrect playlist reference handling, and permissive malformed session fields.
@@ -23,6 +25,9 @@
 
 - Session defaults now initialize runtime variables used by playlist conditions.
 - Media cache identities distinguish session asset locations.
+
+- Malformed custom recipes no longer block valid automatic visuals.
+- Inactive video playback pauses; session switches release video players and invalidate pending results.
 
 ### Known limitations
 - Feature parity is under active verification; see MIGRATION.md before relying on existing sessions.

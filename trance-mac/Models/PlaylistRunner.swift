@@ -18,6 +18,10 @@ public struct PlaylistRunner: Sendable {
         try entered(session: session)
         return drainEvents()
     }
+    /// A library rename changes identity without restarting clocks or replaying cues.
+    public mutating func renameProgram(from original: String, to name: String) {
+        if program == original { program = name }
+    }
     private mutating func entered(session: Session) throws {
         guard let item = session.json["playlist"].object[current] else { throw TranceError("Missing playlist item: \(current)") }
         pending += item["audio_event"].array

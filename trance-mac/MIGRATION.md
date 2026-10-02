@@ -37,7 +37,7 @@ WebM and Ogg compatibility uses the existing, user-approved FFmpeg executable at
 | Click-through overlay | NSWindow controls | Live mouse/Spaces/fullscreen acceptance |
 | F1/F2 diagnostics/control panel | SwiftUI views | Full loaded/failed/cache accounting and all graphical source editor controls |
 | Full session editor | TextEditor with validation/save | Custom-pattern, playlist, theme/media/exclusion and variable editors implemented; graphical acceptance remains |
-| Program/audio settings and autosave | ProgramControls, AudioControls | Visual pins and native colors implemented; theme authoring implemented; program creation/rename and complete system behavior remain |
+| Program/audio settings and autosave | ProgramControls, AudioControls | Visual pins and native colors implemented; theme authoring implemented; program creation/duplicate/rename implemented; complete system behavior remains |
 | System JSON | PlaybackStore, Settings | Frozen legacy system.cfg importer; settings that change engine behavior |
 | Legacy .session conversion | LegacyImporter | Frozen-schema field rejection, all escaping/list forms, enum numeric values and fixture comparisons |
 | ZIP .trance export | ArchiveExporter | Independent ZIP integrity/roundtrip tests; large streaming ZIP/ZIP64 |
@@ -83,7 +83,7 @@ Headset work is explicitly deferred by the user. Desktop production readiness is
 - Native color pickers avoid persisting incomplete typed hex colors. Program selection remains effective as a runtime override until the next playlist item, with a Follow Playlist action.
 - Recorded audio conversions are queued in cue order. Canceled session work and stale theme-audio conversion results are prevented from changing new playback state.
 - Lint and archive export run before SwiftUI/Core Audio initialization.
-- 29 core tests pass, including the original repository session fixture, malformed-schema cases, repairs, exhausted/recursive subroutines, register scopes, pattern save/rename/collision behavior and playlist rename.
+- 33 core tests pass, including the original repository session fixture, malformed-schema cases, repairs, exhausted/recursive subroutines, register scopes, pattern save/rename/collision behavior and playlist rename.
 - Optimized Xcode Release build succeeds for arm64 and x86_64 using an isolated copy of the same project. Xcode reports only the optional AppIntents metadata-extraction notice; no AppIntents dependency is needed by the app. Signing was disabled for verification.
 - Native app build passes without compiler warnings. Headless lint, ZIP integrity and live status/pause/resume/visual/screenshot/hide/show/overlay smoke checks pass. Graphical editor interaction and audible output remain unverified by direct user/GUI acceptance.
 
@@ -98,4 +98,12 @@ Use Git history to compare increments and restore specific files from a save poi
 - System settings validate types, unknown fields, unsigned limits and source clamping while retaining legacy export/session metadata. An explicit system path remains the save destination. Headset metadata is preserved without adding headset functionality.
 - Renderer image/GIF/failure caches now use absolute asset paths so identical relative paths in separate sessions cannot reuse the wrong image. Full cache lifecycle/resource validation remains.
 - Dedicated editor interaction and audible playback remain unverified. Next: program authoring, complete system/window behavior, rendering/audio parity and resource tests, then self-contained release packaging/signing/notarization.
-- Checkpoint validation: 29 core tests passed; native app build and Xcode Release build passed; headless lint and live status/pause/resume/screenshot commands passed. Xcode emitted only its AppIntents metadata warning because this app has no AppIntents dependency. Editor click-through and audible output are still unverified.
+- Checkpoint validation: 33 core tests passed; native app build and Xcode Release build passed; headless lint and live status/pause/resume/screenshot commands passed. Xcode emitted only its AppIntents metadata warning because this app has no AppIntents dependency. Editor click-through and audible output are still unverified.
+
+## Program and playback resilience checkpoint
+
+- Program authoring supports new defaults, full-definition duplication and reference-preserving rename. Renames update every playlist item and the live runner without resetting elapsed time or replaying audio cues. New/duplicated programs use the existing runtime program override behavior.
+- Visual catalogs compile once per program/file revision. Malformed enabled custom recipes are reported and excluded, including their pins; valid visuals continue. If no usable candidate remains, the built-in parallel recipe keeps playback available. Explicit force/preview and lint still report invalid input.
+- Inactive WebM players pause, switching session files releases players, and late conversion results cannot install into an obsolete player generation. Conversion completion waits for an active frame before playback starts. The image context is reused. These changes do not establish full memory/performance acceptance.
+- Next desktop work: complete window/system behavior, remaining pattern/render/audio parity, direct editor/audio acceptance and resource tests, self-contained codec distribution and production packaging/signing/notarization. Headset work remains deferred.
+- Checkpoint validation: 33 core tests passed; native build and universal Intel/Apple Silicon Xcode Release build passed. Live malformed-pinned-pattern and WebM/Ogg fixture instances responded to status/pause/resume/screenshot commands; the malformed-pattern capture visibly rendered image/spiral/caption. Headless baseline lint passed. This is command/render smoke evidence, not audible playback, editor interaction, or sustained resource acceptance. The Release build emitted only the existing AppIntents metadata warning.
