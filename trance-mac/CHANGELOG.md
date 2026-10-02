@@ -12,11 +12,17 @@
 - Dedicated custom-pattern and playlist editors, native color pickers and visual pin controls.
 - Headless session lint and archive export without starting the UI or audio engine.
 
+- Theme/media/scan and variable editors with reference-preserving renames.
+- Strict system settings validation and preservation of explicit settings destinations.
+
 ### Fixed
 - Core Audio callback isolation causing startup crashes in the first build.
 - Exhausted subroutines restarting, incorrect playlist reference handling, and permissive malformed session fields.
 - Named ancestor image-register addressing and shared ramp-segment registers.
 - Audio cue conversion ordering and stale theme-audio replacement.
+
+- Session defaults now initialize runtime variables used by playlist conditions.
+- Media cache identities distinguish session asset locations.
 
 ### Known limitations
 - Feature parity is under active verification; see MIGRATION.md before relying on existing sessions.

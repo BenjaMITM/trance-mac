@@ -21,7 +21,7 @@ struct ControlPanel: View {
                     DisclosureGroup("Visuals",isExpanded:.constant(true)) { VisualControls(store:store) }
                     DisclosureGroup("Custom Patterns") { PatternEditor(store:store) }
                     DisclosureGroup("Program") { ProgramControls(store:store) }
-                    DisclosureGroup("Themes") { ThemeControls(store:store) }
+                    DisclosureGroup("Themes") { ThemeEditor(store:store) }
                     DisclosureGroup("Playlist") { PlaylistEditor(store:store) }
                     DisclosureGroup("Audio") { AudioControls(store:store) }
                     DisclosureGroup("Overlay") {
@@ -29,11 +29,7 @@ struct ControlPanel: View {
                         Slider(value:$store.opacity,in:0.05...1) { Text("Opacity") }
                         Button("Hide and Silence") { store.setHidden(true) }
                     }
-                    DisclosureGroup("Variables") {
-                        ForEach(session.json["variable_map"].object.keys.sorted(),id:\.self) { name in
-                            TextField(name,text:Binding(get:{store.variables[name] ?? ""},set:{store.variables[name] = $0}))
-                        }
-                    }
+                    DisclosureGroup("Variables") { VariableEditor(store:store) }
                     Button("Export Session JSON…",action:store.exportJSON)
                     Button("Export Portable Archive…",action:store.exportArchive)
                     Button("Choose Media Folder…",action:store.scanFolder)

@@ -21,7 +21,7 @@ WebM and Ogg compatibility uses the existing, user-approved FFmpeg executable at
 | Session JSON, atomic save/export | JSONValue, Session, editor | Strict schema and source repair implemented/tested; exact serialization and all edge fixtures remain |
 | Relative-path validation | Session.resolve | Compare symlink and all source edge cases |
 | Folder discovery, exclusions, inheritance | Session.scan, ThemePool | Matching-directory conversion and source text splitting implemented; exact extension classification remains |
-| Weighted themes, two slots, runtime pins | PlaybackStore | Loading queue parity, source-tier zero-weight behavior, refresh and saved pins UI |
+| Weighted themes, two slots, runtime pins | PlaybackStore | Loading queue parity, source-tier zero-weight behavior, refresh and graphical acceptance |
 | Eight built-in patterns | Original recipes in BuiltinPatterns | Frame-by-frame C++ comparison; mirror tiling/projection parity |
 | V3 parser/expressions/nested clocks/ramp/burst | PatternParser, PatternRuntime | Ancestor/ramp register scopes implemented/tested; sequence index/loop accounting and strict semantic limits remain |
 | Images, GIF, WebM | PlayerCanvas, VideoFrameService, CodecService | Animation ownership/pause timing, asynchronous image decode/downsampling, cache diagnostics |
@@ -36,8 +36,8 @@ WebM and Ogg compatibility uses the existing, user-approved FFmpeg executable at
 | Global Shift+F11 | HotkeyService | Live global-key acceptance |
 | Click-through overlay | NSWindow controls | Live mouse/Spaces/fullscreen acceptance |
 | F1/F2 diagnostics/control panel | SwiftUI views | Full loaded/failed/cache accounting and all graphical source editor controls |
-| Full session editor | TextEditor with validation/save | Custom-pattern and playlist editors implemented; variable and theme media/exclusion editors remain |
-| Program/audio settings and autosave | ProgramControls, AudioControls | Visual pins and native colors implemented; complete theme/program/system authoring remains |
+| Full session editor | TextEditor with validation/save | Custom-pattern, playlist, theme/media/exclusion and variable editors implemented; graphical acceptance remains |
+| Program/audio settings and autosave | ProgramControls, AudioControls | Visual pins and native colors implemented; theme authoring implemented; program creation/rename and complete system behavior remain |
 | System JSON | PlaybackStore, Settings | Frozen legacy system.cfg importer; settings that change engine behavior |
 | Legacy .session conversion | LegacyImporter | Frozen-schema field rejection, all escaping/list forms, enum numeric values and fixture comparisons |
 | ZIP .trance export | ArchiveExporter | Independent ZIP integrity/roundtrip tests; large streaming ZIP/ZIP64 |
@@ -83,10 +83,19 @@ Headset work is explicitly deferred by the user. Desktop production readiness is
 - Native color pickers avoid persisting incomplete typed hex colors. Program selection remains effective as a runtime override until the next playlist item, with a Follow Playlist action.
 - Recorded audio conversions are queued in cue order. Canceled session work and stale theme-audio conversion results are prevented from changing new playback state.
 - Lint and archive export run before SwiftUI/Core Audio initialization.
-- 26 core tests pass, including the original repository session fixture, malformed-schema cases, repairs, exhausted/recursive subroutines, register scopes, pattern save/rename/collision behavior and playlist rename.
+- 29 core tests pass, including the original repository session fixture, malformed-schema cases, repairs, exhausted/recursive subroutines, register scopes, pattern save/rename/collision behavior and playlist rename.
 - Optimized Xcode Release build succeeds for arm64 and x86_64 using an isolated copy of the same project. Xcode reports only the optional AppIntents metadata-extraction notice; no AppIntents dependency is needed by the app. Signing was disabled for verification.
 - Native app build passes without compiler warnings. Headless lint, ZIP integrity and live status/pause/resume/visual/screenshot/hide/show/overlay smoke checks pass. Graphical editor interaction and audible output remain unverified by direct user/GUI acceptance.
 
 ## Rollback
 
 Use Git history to compare increments and restore specific files from a save point on a separate branch. Keep session backups before editing: autosave writes the loaded session. JSON writes are atomic per file; assets and pattern files are separate transactions. Do not overwrite or delete the source checkout. No push, deployment, release tag, or distribution signing has been performed.
+
+## Library editor checkpoint
+
+- Theme editing supports explicit image/animation/font/audio paths, JSON phrase arrays (preserving embedded newlines), directory scanning, inheritance, exclusions, program weights and saved pins. Renames update references in every program. Missing assets and scan directories reject the edit before saving.
+- Variable editing supports descriptions, allowed values and defaults. Renames update playlist conditions; removing a value still used by a condition fails explicitly. Runtime selection uses allowed-value pickers, and absent runtime variables initialize to session defaults.
+- System settings validate types, unknown fields, unsigned limits and source clamping while retaining legacy export/session metadata. An explicit system path remains the save destination. Headset metadata is preserved without adding headset functionality.
+- Renderer image/GIF/failure caches now use absolute asset paths so identical relative paths in separate sessions cannot reuse the wrong image. Full cache lifecycle/resource validation remains.
+- Dedicated editor interaction and audible playback remain unverified. Next: program authoring, complete system/window behavior, rendering/audio parity and resource tests, then self-contained release packaging/signing/notarization.
+- Checkpoint validation: 29 core tests passed; native app build and Xcode Release build passed; headless lint and live status/pause/resume/screenshot commands passed. Xcode emitted only its AppIntents metadata warning because this app has no AppIntents dependency. Editor click-through and audible output are still unverified.

@@ -24,6 +24,33 @@ public enum SessionSchema {
         "format":.enumeration(["trance-session"]),"format_version":.integer,"first_playlist_item":.string,
         "playlist":.map(item),"program_map":.map(program),"theme_map":.map(theme),"variable_map":.map(variable),
         "theme_scan_root":.either(.path,.object(["dir":.path,"auto_rescan":.boolean]))])
+    private static let system = Field.object([
+        "format": .enumeration(["trance-system"]), "format_version": .integer,
+        "enable_vsync": .boolean, "windowed": .boolean, "renderer": .string,
+        "draw_depth": .number, "eye_spacing": .number, "image_cache_size": .unsigned,
+        "animation_buffer_size": .unsigned, "font_cache_size": .unsigned,
+        "last_root_directory": .string, "last_session_map": .map(.map(.string)),
+        "last_export_settings": .object(["path": .string, "export_3d": .boolean,
+            "width": .unsigned, "height": .unsigned, "fps": .unsigned,
+            "length": .unsigned, "quality": .unsigned, "threads": .unsigned])])
+    public static var defaultSystem: JSONValue {
+        .object(["format": .string("trance-system"), "format_version": .number(1),
+            "enable_vsync": .bool(true), "windowed": .bool(true), "draw_depth": .number(0.5),
+            "eye_spacing": .number(0.0625), "image_cache_size": .number(64),
+            "animation_buffer_size": .number(32), "font_cache_size": .number(8)])
+    }
+    public static func checkedSystem(_ json: JSONValue) throws -> JSONValue {
+        var value = stripComments(json)
+        try check(value, against: system, at: "system")
+        guard value.object["format"] != nil, value.object["format_version"] != nil,
+              value["format_version"].number == 1 else { throw TranceError("system: format and supported format_version are required") }
+        value["draw_depth"] = .number(min(1, max(0, value.object["draw_depth"] == nil ? 0.5 : value["draw_depth"].number)))
+        value["eye_spacing"] = .number(min(1, max(-1, value.object["eye_spacing"] == nil ? 0.0625 : value["eye_spacing"].number)))
+        for (key, minimum) in [("image_cache_size", 16.0), ("animation_buffer_size", 8.0), ("font_cache_size", 2.0)] {
+            value[key] = .number(max(minimum, value[key].number))
+        }
+        return value
+    }
     public static func checked(_ json: JSONValue) throws -> JSONValue {
         let value = stripComments(json)
         try check(value, against: session, at: "session")

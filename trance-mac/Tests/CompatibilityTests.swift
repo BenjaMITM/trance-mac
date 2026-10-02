@@ -183,3 +183,47 @@ private func fixture(_ json: JSONValue) throws -> Session {
     #expect(try SessionLint.validate(session) >= 8)
     #expect(try Data(contentsOf:input) == before)
 }
+
+@Test func themeRenamePreservesAllProgramReferences() throws {
+    var json = minimal()
+    json["theme_map"] = .object(["old": .object(["text_line": .array([.string("hello")])])])
+    json["program_map"] = .object(["a": .object(["enabled_theme": .array([.object(["theme_name": .string("old"), "random_weight": .number(7), "pinned": .bool(true)])])]), "b": .object(["enabled_theme": .array([.object(["theme_name": .string("old"), "random_weight": .number(3)])])])])
+    let session = try fixture(json)
+    let updated = try LibraryAuthoring.theme(session: session, original: "old", name: "new", definition: session.json["theme_map"]["old"], program: "a", weight: 9, pinned: false)
+    #expect(updated.json["theme_map"].object["old"] == nil)
+    #expect(updated.json["program_map"]["a"]["enabled_theme"].array[0]["random_weight"].number == 9)
+    #expect(updated.json["program_map"]["b"]["enabled_theme"].array[0]["theme_name"].string == "new")
+    #expect(updated.json["program_map"]["b"]["enabled_theme"].array[0]["random_weight"].number == 3)
+    #expect(updated.pools["new"]?.text == ["hello"])
+    #expect(throws: TranceError.self) { try LibraryAuthoring.theme(session: session, original: nil, name: "bad", definition: .object(["image_path": .array([.string("missing.png")])]), program: "a", weight: 1, pinned: false) }
+}
+
+@Test func variableRenamePreservesConditionsAndRejectsUsedValueRemoval() throws {
+    var json = minimal()
+    json["variable_map"] = .object(["mood": .object(["value": .array([.string("calm"), .string("awake")]), "default_value": .string("calm")])])
+    json["playlist"] = .object(["main": .object(["standard": .object(["program": .string("default")]), "next_item": .array([.object(["playlist_item_name": .string("main"), "random_weight": .number(1), "condition_variable_name": .string("mood"), "condition_variable_value": .string("awake")])])])])
+    let session = try fixture(json)
+    let updated = try LibraryAuthoring.variable(session: session, original: "mood", name: "state", description: "Session state", values: ["calm", "awake"], defaultValue: "awake")
+    #expect(updated.json["variable_map"].object["mood"] == nil)
+    #expect(updated.json["playlist"]["main"]["next_item"].array[0]["condition_variable_name"].string == "state")
+    #expect(throws: TranceError.self) { try LibraryAuthoring.variable(session: session, original: "mood", name: "state", description: "", values: ["calm"], defaultValue: "calm") }
+    #expect(throws: TranceError.self) { try LibraryAuthoring.variable(session: session, original: nil, name: "new", description: "", values: ["x", "x"], defaultValue: "x") }
+}
+
+@Test func systemSettingsValidateAndPreserveLegacyMetadata() throws {
+    var json = SessionSchema.defaultSystem
+    json["draw_depth"] = .number(12); json["eye_spacing"] = .number(-3)
+    json["image_cache_size"] = .number(0)
+    json["last_session_map"] = .object(["folder": .object(["state": .string("awake")])])
+    json["last_export_settings"] = .object(["width": .number(1280), "fps": .number(30)])
+    let checked = try SessionSchema.checkedSystem(json)
+    #expect(checked["draw_depth"].number == 1)
+    #expect(checked["eye_spacing"].number == -1)
+    #expect(checked["image_cache_size"].number == 16)
+    #expect(checked["last_session_map"] == json["last_session_map"])
+    #expect(checked["last_export_settings"] == json["last_export_settings"])
+    json["font_cache_size"] = .number(-1)
+    #expect(throws: TranceError.self) { try SessionSchema.checkedSystem(json) }
+    json = SessionSchema.defaultSystem; json["unknown"] = .bool(true)
+    #expect(throws: TranceError.self) { try SessionSchema.checkedSystem(json) }
+}

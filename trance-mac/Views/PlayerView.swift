@@ -54,7 +54,9 @@ struct PlayerView: NSViewRepresentable {
         for text in frame.texts where !text.text.isEmpty { drawText(text,program: store.program,time: frame.time) }
     }
     private func image(_ path: String, animated: Bool, time: Double) -> NSImage? {
-        guard !failed.contains(path), let session = store?.session, let url = try? session.resolve(path) else { return nil }
+        guard let session = store?.session, let url = try? session.resolve(path) else { return nil }
+        let path = url.standardizedFileURL.path
+        guard !failed.contains(path) else { return nil }
         if animated && url.pathExtension.lowercased() == "webm" {
             if let image = videos.frame(url:url,paused:store?.paused == true || store?.hidden == true) { lastVideoImages[path] = image }
             if let error = videos.error(url:url) { failed.insert(path); store?.message = error }

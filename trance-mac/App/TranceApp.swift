@@ -47,12 +47,12 @@ struct TranceApp: App {
             let options = try LaunchOptions(arguments:Array(CommandLine.arguments.dropFirst()))
             store.muted = options.muted; store.overlay = options.overlay; store.opacity = options.opacity
             store.variables = options.variables; store.forcedVisual = options.visual
+            if let system = options.system { store.systemURL = system; store.system = try SessionSchema.checkedSystem(JSONDecoder().decode(JSONValue.self,from:Data(contentsOf:system))) }
             let url = options.session ?? URL(fileURLWithPath:FileManager.default.currentDirectoryPath).appendingPathComponent("default.json")
             if options.session != nil || FileManager.default.fileExists(atPath:url.path) {
                 let session = url.pathExtension == "session" ? try LegacyImporter.importSession(url) : try Session.load(url)
                 store.install(session)
             } else if options.lint || options.archive != nil { throw TranceError("Supply a session file") }
-            if let system = options.system { store.system = try JSONDecoder().decode(JSONValue.self,from:Data(contentsOf:system)) }
             if let pattern = options.pattern { try store.forceSource(name:"runtime",source:String(contentsOf:pattern,encoding:.utf8)); store.forcedVisual = "runtime" }
             if options.hidden { store.setHidden(true) }
             let commands = CommandService(store:store); self.commands = commands

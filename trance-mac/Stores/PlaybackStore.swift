@@ -29,7 +29,8 @@ import Observation
     var editorText = ""
     var variables: [String: String] = [:]
     var isLoading = false
-    var system: JSONValue = .object(["format": .string("trance-system"),"format_version": .number(1),"enable_vsync": .bool(true),"windowed": .bool(true),"draw_depth": .number(0.5),"eye_spacing": .number(0.0625),"image_cache_size": .number(128),"animation_buffer_size": .number(32),"font_cache_size": .number(16)])
+    var system: JSONValue = SessionSchema.defaultSystem
+    var systemURL: URL?
     @ObservationIgnored let audio = AudioService()
     @ObservationIgnored private var queuedAudio: Task<Void,Never>?
     @ObservationIgnored private var themeAudioGeneration = 0
@@ -80,11 +81,17 @@ import Observation
             queuedAudio?.cancel(); queuedAudio = nil; themeAudioGeneration += 1; audio.resetPlayback()
             manualProgram = nil; manualProgramItem = ""
             self.session = session; editorText = try session.json.text(); themePins = []; forcedVisual = nil
+            for (name, definition) in session.json["variable_map"].object where variables[name] == nil {
+                variables[name] = definition["default_value"].string
+            }
             playlist = PlaylistRunner(); playlist.variables = variables
             let initialEvents = try playlist.start(session: session)
             dispatchAudio(initialEvents,session:session)
             programName = playlist.program; contentTime = 0; accumulator = 0; themeClock = 0
-            if let data = try? Data(contentsOf: session.root.appendingPathComponent("system.json")), let json = try? JSONDecoder().decode(JSONValue.self,from: data) { system = json }
+            let settingsURL = systemURL ?? session.root.appendingPathComponent("system.json")
+            if FileManager.default.fileExists(atPath: settingsURL.path) {
+                system = try SessionSchema.checkedSystem(JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: settingsURL)))
+            } else { system = SessionSchema.defaultSystem }
             chooseThemes(); try chooseVisual(); audio.configure(program["entrainment"]); lastTime = Date()
         } catch { message = error.localizedDescription }
     }
@@ -260,7 +267,7 @@ import Observation
             }
         }
     }
-    func saveSystem() { guard let session else { return }; do { try system.encoded().write(to: session.root.appendingPathComponent("system.json"),options: .atomic) } catch { message = error.localizedDescription } }
+    func saveSystem() { guard let session else { return }; do { system = try SessionSchema.checkedSystem(system); try system.encoded().write(to: systemURL ?? session.root.appendingPathComponent("system.json"),options: .atomic) } catch { message = error.localizedDescription } }
     func setHidden(_ value: Bool) {
         hidden = value
         if value { overlay = false; NSApp.windows.filter { $0.identifier?.rawValue == "player" || $0.title == "Trance" }.forEach { $0.orderOut(nil) } }
