@@ -14,6 +14,7 @@ struct ControlPanel: View {
                         ForEach(store.programNames,id:\.self) { Text($0).tag($0) }
                     }
                     DisclosureGroup("Visuals",isExpanded:.constant(true)) { VisualControls(store:store) }
+                    DisclosureGroup("Custom Patterns") { PatternEditor(store:store) }
                     DisclosureGroup("Program") { ProgramControls(store:store) }
                     DisclosureGroup("Themes") { ThemeControls(store:store) }
                     DisclosureGroup("Audio") { AudioControls(store:store) }
@@ -49,6 +50,12 @@ struct VisualControls: View {
                 HStack {
                     Button(name) { store.forceVisual(name) }.buttonStyle(.borderless)
                     Spacer()
+                    Toggle("Pin",isOn:Binding(get:{store.program["visual_type"].array.first { $0["type"].string == name }?["pinned"].bool ?? false},set:{value in
+                        var rows = store.program["visual_type"].array
+                        if let i = rows.firstIndex(where:{$0["type"].string == name}) { rows[i]["pinned"] = .bool(value) }
+                        else { rows.append(.object(["type":.string(name),"random_weight":.number(0),"pinned":.bool(value)])) }
+                        store.updateProgram("visual_type",.array(rows))
+                    })).toggleStyle(.checkbox)
                     let rows = store.program["visual_type"].array
                     let weight = rows.first { $0["type"].string == name }?["random_weight"].number ?? 0
                     Stepper(value:Binding(get:{Int(weight)},set:{ value in

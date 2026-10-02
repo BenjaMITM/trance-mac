@@ -6,7 +6,13 @@ public struct PatternDraw: Sendable {
     public var scope: String
     public var entry: Bool
     public var clocks: [String: PatternClock]
+    public var registerScopes: [String:String]
     public func value(_ name: String, default fallback: Double = 0) -> Double { effect.values[name]?.evaluate(clocks) ?? fallback }
+    public func registerKey(_ name: String) -> String {
+        let pieces = name.split(separator:".",maxSplits:1).map(String.init)
+        if pieces.count == 2 { return (registerScopes[pieces[0]] ?? scope)+":"+pieces[1] }
+        return scope+":"+name
+    }
     public var visible: Bool { effect.gates.allSatisfy { $0.evaluate(clocks) != 0 } }
 }
 public struct PatternRuntime: Sendable {
@@ -22,7 +28,7 @@ public struct PatternRuntime: Sendable {
         visit(root, parentFrame: frame, parentClocks: [:], scope: "", path: "", output: &output)
         return output
     }
-    private mutating func visit(_ node: PatternNode, parentFrame: Int, parentClocks: [String: PatternClock], scope: String, path: String, output: inout [PatternDraw], forcedLength: Int? = nil) {
+    private mutating func visit(_ node: PatternNode, parentFrame: Int, parentClocks: [String: PatternClock], scope: String, path: String, output: inout [PatternDraw], forcedLength: Int? = nil, registerScopes: [String:String] = [:]) {
         let identity = path + "/\(node.id)"
         var local = parentFrame; var length = forcedLength ?? node.length; var occurrence = 0; var index = 0
         switch node.kind {
@@ -48,12 +54,14 @@ public struct PatternRuntime: Sendable {
             clocks[node.name] = PatternClock(frame: Double(parentFrame),length: outer.length,index: state.held ? 1 : 0)
             for child in node.children where state.held ? [.held,.enter].contains(child.kind) : child.kind == .base {
                 if child.kind == .enter && parentFrame != state.start { continue }
-                visit(child,parentFrame: parentFrame-state.start,parentClocks: clocks,scope: scope,path: identity,output: &output,forcedLength: state.held ? state.length : 0)
+                visit(child,parentFrame: parentFrame-state.start,parentClocks: clocks,scope: scope,path: identity,output: &output,forcedLength: state.held ? state.length : 0,registerScopes:registerScopes)
             }
             return
         case .base,.held,.enter: local = parentFrame; occurrence = 0
         }
-        let actualScope = node.kind == .pattern || node.kind == .ramp ? identity : scope
+        let actualScope = node.kind == .pattern ? identity : node.kind == .ramp ? identity+"/segment\(index)" : scope
+        var scopes = registerScopes
+        if node.kind == .pattern || node.kind == .ramp { scopes[node.name] = actualScope }
         var clocks = parentClocks
         let clock = PatternClock(frame: Double(local),length: Double(length),index: Double(index))
         clocks[node.name] = clock; clocks["this"] = clock; clocks["self"] = clock
@@ -61,17 +69,17 @@ public struct PatternRuntime: Sendable {
         entries[identity] = occurrence
         if diagnostics.count < 8 { diagnostics.append("\(node.name): \(local)/\(length)f") }
         for (i,effect) in node.effects.enumerated() {
-            output.append(PatternDraw(effect: effect,key: identity+"/e\(i)",scope: actualScope,entry: isEntry,clocks: clocks))
+            output.append(PatternDraw(effect: effect,key: identity+"/e\(i)",scope: actualScope,entry: isEntry,clocks: clocks,registerScopes:scopes))
         }
         if node.sequential {
             let total = node.children.reduce(0) { $0 + max(1,$1.span) }
             var position = local % max(1,total)
             for child in node.children {
-                if position < child.span { visit(child,parentFrame: position,parentClocks: clocks,scope: actualScope,path: identity,output: &output); break }
+                if position < child.span { visit(child,parentFrame: position,parentClocks: clocks,scope: actualScope,path: identity,output: &output,registerScopes:scopes); break }
                 position -= child.span
             }
         } else {
-            for child in node.children { visit(child,parentFrame: local,parentClocks: clocks,scope: actualScope,path: identity,output: &output) }
+            for child in node.children { visit(child,parentFrame: local,parentClocks: clocks,scope: actualScope,path: identity,output: &output,registerScopes:scopes) }
         }
     }
 }

@@ -28,6 +28,8 @@ import Observation
     var isLoading = false
     var system: JSONValue = .object(["format": .string("trance-system"),"format_version": .number(1),"enable_vsync": .bool(true),"windowed": .bool(true),"draw_depth": .number(0.5),"eye_spacing": .number(0.0625),"image_cache_size": .number(128),"animation_buffer_size": .number(32),"font_cache_size": .number(16)])
     @ObservationIgnored let audio = AudioService()
+    @ObservationIgnored private var queuedAudio: Task<Void,Never>?
+    @ObservationIgnored private var themeAudioGeneration = 0
     @ObservationIgnored private var runtime: PatternRuntime?
     @ObservationIgnored private var playlist = PlaylistRunner()
     @ObservationIgnored private var registers: [String: (String,Bool)] = [:]
@@ -72,6 +74,7 @@ import Observation
     }
     func install(_ session: Session) {
         do {
+            queuedAudio?.cancel(); queuedAudio = nil; themeAudioGeneration += 1; audio.resetPlayback()
             self.session = session; editorText = try session.json.text(); themePins = []; forcedVisual = nil
             playlist = PlaylistRunner(); playlist.variables = variables
             let initialEvents = try playlist.start(session: session)
@@ -83,7 +86,14 @@ import Observation
     }
     private func dispatchAudio(_ events: [JSONValue],session: Session) {
         guard !events.isEmpty else { return }
-        Task { do { try await audio.convertedEvents(events,session:session) } catch { message = error.localizedDescription } }
+        let previous = queuedAudio
+        queuedAudio = Task {
+            if let previous { await previous.value }
+            guard !Task.isCancelled else { return }
+            do { try await audio.convertedEvents(events,session:session) }
+            catch is CancellationError { }
+            catch { message = error.localizedDescription }
+        }
     }
     func tick() {
         let now = Date(), delta = min(0.25,now.timeIntervalSince(lastTime)); lastTime = now
@@ -131,11 +141,8 @@ import Observation
         return try String(contentsOf: session.resolve(custom["file"].string),encoding: .utf8)
     }
     func forceSource(name: String, source: String) throws {
-        let layer = program["entrainment"]["layer"].array.filter { $0["pulse_hz"].number > 0 }.max { $0["amplitude_db"].number <= $1["amplitude_db"].number }
-        let pulse = layer?["pulse_hz"].number ?? 0
-        let beat = pulse > 0 ? Int((program["global_fps"].number/pulse).rounded()) : 0
-        var parser = try PatternParser(source,beat: beat)
-        runtime = PatternRuntime(root: try parser.parse()); visualName = name
+        let node = try PatternAuthoring.validate(source:source,program:program)
+        runtime = PatternRuntime(root: node); visualName = name
         registers = [:]; selections = [:]; chances = [:]; counts = [:]; alternates = [:]
     }
     func forceVisual(_ name: String) { do { try forceSource(name: name,source: source(name)); forcedVisual = name } catch { message = error.localizedDescription } }
@@ -158,7 +165,7 @@ import Observation
     private func evaluate(_ draws: [PatternDraw]) {
         var result = RenderFrame(); result.time = contentTime
         for draw in draws {
-            let effect = draw.effect, key = registerKey(effect.register,scope: draw.scope)
+            let effect = draw.effect, key = draw.registerKey(effect.register)
             if draw.entry {
                 let chance = effect.chance.map { min(0.99,max(0.01,$0)) } ?? 1
                 chances[draw.key] = Double.random(in: 0..<1) < chance
@@ -170,7 +177,7 @@ import Observation
                         let animated = effect.animated && counts[draw.key,default: 0] % effect.animationEvery == 0
                         if animated, let path = pool.animations.randomElement() { sharedAnimation = path }
                         if let path = pickImage(pool) ?? (animated ? pool.animations.randomElement() : nil) { registers[key] = (path,animated) }
-                    case "copy": if let value = registers[key] { registers[registerKey(effect.destination,scope: draw.scope)] = value }
+                    case "copy": if let value = registers[key] { registers[draw.registerKey(effect.destination)] = value }
                     case "word","line","caption","subtext":
                         var text = pool.text.randomElement() ?? ""
                         if !textPins.isEmpty { text = textPins[textIndex % textPins.count]; textIndex += 1 }
@@ -180,9 +187,17 @@ import Observation
                     case "anim": sharedAnimation = pool.animations.randomElement() ?? ""
                     case "audio":
                         do {
-                            if effect.content == "stop" { try audio.theme(path: nil) }
+                            if effect.content == "stop" { themeAudioGeneration += 1; try audio.theme(path: nil) }
                             else if let path = pool.audio.randomElement(), let session { let url = try session.resolve(path)
-                            Task { do { let compatible = try await CodecService.shared.compatibleURL(url); try audio.theme(path:compatible,loop:effect.loop) } catch { message = error.localizedDescription } } }
+                            themeAudioGeneration += 1
+                            let generation = themeAudioGeneration
+                            Task {
+                                do {
+                                    let compatible = try await CodecService.shared.compatibleURL(url)
+                                    guard generation == themeAudioGeneration else { return }
+                                    try audio.theme(path:compatible,loop:effect.loop)
+                                } catch { if generation == themeAudioGeneration { message = error.localizedDescription } }
+                            } }
                         } catch { message = error.localizedDescription }
                     default: break
                     }

@@ -88,6 +88,7 @@ private final class SynthStorage: Sendable { let state = Mutex(SynthState()) }
                 playConverted[i] = compatible
             }
         }
+        try Task.checkCancellation()
         defer { playConverted = [:] }
         try self.events(converted,session:session)
     }
@@ -132,6 +133,10 @@ private final class SynthStorage: Sendable { let state = Mutex(SynthState()) }
         for (channel,player) in channels { player.volume = muted ? 0 : requestedVolumes[channel] ?? 1; if paused { player.pause() } else { player.play() } }
         themePlayer?.volume = muted ? 0 : themeVolume
         if paused { themePlayer?.pause() } else { themePlayer?.play() }
+    }
+    func resetPlayback() {
+        channels.values.forEach { $0.stop() }; channels = [:]; fades = [:]; requestedVolumes = [:]
+        themePlayer?.stop(); themePlayer = nil; playConverted = [:]; themeVolume = 1
     }
     func stop() { engine.stop(); channels.values.forEach { $0.stop() }; channels = [:]; themePlayer?.stop() }
 }

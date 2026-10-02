@@ -21,8 +21,8 @@ public struct Session: Sendable {
     public var root: URL { url.deletingLastPathComponent() }
     public var programs: [String] { json["program_map"].object.keys.sorted() }
     public init(json: JSONValue, url: URL) throws {
-        self.json = json; self.url = url; pools = [:]
-        try validate(); try scan()
+        self.json = try SessionSchema.checked(json); self.url = url; pools = [:]
+        try scan(); try validate()
     }
     public static func load(_ url: URL) throws -> Session {
         try Session(json: JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: url)), url: url)
@@ -39,33 +39,77 @@ public struct Session: Sendable {
             "program_map": .object(["default": program]), "theme_map": .object([:])]), url: url)
     }
     public func resolve(_ path: String) throws -> URL {
+        try SessionSchema.checkPath(path)
         let path = path.replacingOccurrences(of: "\\", with: "/")
-        guard !path.hasPrefix("/"), !path.hasPrefix("~"), !path.contains(":"), !path.split(separator: "/").contains("..") else {
-            throw TranceError("Asset path must be relative to the session: \(path)")
-        }
         return root.appendingPathComponent(path)
     }
     public func save(to destination: URL? = nil) throws { try json.encoded().write(to: destination ?? url, options: .atomic) }
+    public static var defaultVisuals: JSONValue {
+        .array(BuiltinPatterns.sources.keys.sorted().map { .object(["type":.string($0),"random_weight":.number(1)]) })
+    }
+    public static var defaultProgram: JSONValue {
+        .object(["global_fps":.number(120),"zoom_intensity":.number(0.5),"visual_type":defaultVisuals,
+            "spiral_colour_a":.string("#FF96C832"),"spiral_colour_b":.string("#00000032"),
+            "main_text_colour":.string("#FF96C8E0"),"shadow_text_colour":.string("#000000C0"),
+            "entrainment":.object(["master_db":.number(-28),"layer":.array([
+                .object(["center_hz":.number(312),"binaural_hz":.number(3),"pulse_hz":.number(5),"amplitude_db":.number(0)]),
+                .object(["center_hz":.number(60),"binaural_hz":.number(3),"pulse_hz":.number(3.25),"amplitude_db":.number(-6)])])])])
+    }
     mutating func validate() throws {
-        guard json["format"].string == "trance-session", json["format_version"].number <= 1 else { throw TranceError("Unsupported session format/version") }
-        guard !programs.isEmpty, !json["playlist"].object.isEmpty else { throw TranceError("Session needs a program and playlist") }
-        for (name, item) in json["playlist"].object where !name.hasPrefix("_") {
-            guard (item.object["standard"] != nil) != (item.object["subroutine"] != nil) else { throw TranceError("Playlist \(name) needs exactly one standard or subroutine") }
-            if let standard = item.object["standard"], json["program_map"].object[standard["program"].string] == nil { throw TranceError("Unknown program in \(name)") }
+        if json["theme_map"].object.isEmpty { json["theme_map"] = .object(["default":.object([:])]); pools["default"] = ThemePool() }
+        if programs.isEmpty { json["program_map"] = .object(["default":Self.defaultProgram]) }
+        if json["playlist"].object.isEmpty {
+            json["playlist"] = .object(["default":.object(["standard":.object(["program":.string(programs[0])])])])
         }
-        guard json["playlist"].object[json["first_playlist_item"].string] != nil else { throw TranceError("Unknown first playlist item") }
+        for name in json["variable_map"].object.keys {
+            var variable = json["variable_map"][name]
+            if variable["value"].array.isEmpty { variable["value"] = .array([.string("Default")]) }
+            if !variable["value"].array.contains(variable["default_value"]) { variable["default_value"] = variable["value"].array[0] }
+            json["variable_map"][name] = variable
+        }
+        let items = Set(json["playlist"].object.keys)
+        for name in items {
+            var item = json["playlist"][name]
+            if item.object["standard"] != nil {
+                let program = item["standard"]["program"].string
+                if json["program_map"].object[program] == nil { json["program_map"][program] = Self.defaultProgram }
+            } else { item["subroutine"] = .array(item["subroutine"].array.filter { items.contains($0.string) }) }
+            var branches = item["next_item"].array.filter { $0["random_weight"].number > 0 && items.contains($0["playlist_item_name"].string) }
+            for i in branches.indices {
+                let variable = json["variable_map"][branches[i]["condition_variable_name"].string]
+                if variable == .null || !variable["value"].array.contains(branches[i]["condition_variable_value"]) {
+                    var fields = branches[i].object; fields.removeValue(forKey:"condition_variable_name"); fields.removeValue(forKey:"condition_variable_value"); branches[i] = .object(fields)
+                }
+            }
+            item["next_item"] = .array(branches); json["playlist"][name] = item
+        }
+        if !items.contains(json["first_playlist_item"].string) { json["first_playlist_item"] = .string(items.sorted()[0]) }
         for name in programs {
             var program = json["program_map"][name]
-            program["global_fps"] = .number(min(240, max(1, program["global_fps"].number)))
-            program["zoom_intensity"] = .number(min(1, max(0, program["zoom_intensity"].number)))
-            for pattern in program["custom_visual_pattern"].array {
-                let path = try resolve(pattern["file"].string)
-                guard FileManager.default.fileExists(atPath: path.path) else { throw TranceError("Missing pattern: \(path.path)") }
+            program["global_fps"] = .number(min(240,max(1,program["global_fps"].number)))
+            program["zoom_intensity"] = .number(min(1,max(0,program["zoom_intensity"].number)))
+            var themes = program["enabled_theme"].array
+            for i in themes.indices where pools[themes[i]["theme_name"].string] == nil { themes[i]["random_weight"] = .number(0); themes[i]["pinned"] = .bool(false) }
+            if !themes.contains(where: { $0["random_weight"].number > 0 || $0["pinned"].bool }) {
+                themes = pools.keys.sorted().map { .object(["theme_name":.string($0),"random_weight":.number(1)]) }
             }
+            program["enabled_theme"] = .array(themes)
+            var patterns = program["custom_visual_pattern"].array
+            for i in patterns.indices {
+                if !patterns[i]["enabled"].bool { patterns[i]["pinned"] = .bool(false) }
+                let file = try resolve(patterns[i]["file"].string)
+                guard FileManager.default.fileExists(atPath:file.path) else { throw TranceError("Missing pattern: \(file.path)") }
+            }
+            program["custom_visual_pattern"] = .array(patterns)
+            let visuals = program["visual_type"].array
+            if !visuals.contains(where:{ $0["random_weight"].number > 0 || $0["pinned"].bool }), !patterns.contains(where:{$0["enabled"].bool && $0["pinned"].bool}) { program["visual_type"] = Self.defaultVisuals }
+            // Protobuf color omission means transparent black, not a UI fallback color.
+            for key in ["spiral_colour_a","spiral_colour_b","main_text_colour","shadow_text_colour"] where program.object[key] == nil { program[key] = .string("#00000000") }
             json["program_map"][name] = program
         }
     }
     public mutating func scan() throws {
+        var discoveredNames = Set<String>()
         let scanRoot = json["theme_scan_root"]
         let auto = scanRoot.object["auto_rescan"]?.bool ?? true
         let dir = scanRoot.string.isEmpty ? (scanRoot["dir"].string.isEmpty ? "." : scanRoot["dir"].string) : scanRoot.string
@@ -83,11 +127,22 @@ public struct Session: Sendable {
                 let discovered = try directPool(directory: directory, exclude: [])
                 if json["theme_map"].object[name] == nil, !discovered.images.isEmpty || !discovered.animations.isEmpty || !discovered.text.isEmpty || !discovered.audio.isEmpty {
                     json["theme_map"][name] = .object(["scan": .string(relative)])
+                    discoveredNames.insert(name)
                 }
             }
         }
         var own: [String: ThemePool] = [:]; var directories: [String: String] = [:]
-        for (name, theme) in json["theme_map"].object where !name.hasPrefix("_") {
+        for (name, originalTheme) in json["theme_map"].object where !name.hasPrefix("_") {
+            var theme = originalTheme
+            if theme["scan"] == .null {
+                let candidate = name == "/root/" ? "." : name
+                if let directory = try? resolve(candidate) {
+                    let scanned = try directPool(directory:directory,exclude:[])
+                    if !scanned.images.isEmpty || !scanned.animations.isEmpty || !scanned.text.isEmpty || !scanned.audio.isEmpty || !scanned.fonts.isEmpty {
+                        theme = .object(["scan":.string(candidate)]); json["theme_map"][name] = theme
+                    }
+                }
+            }
             var pool = ThemePool()
             pool.images = theme["image_path"].array.map(\.string); pool.animations = theme["animation_path"].array.map(\.string)
             pool.fonts = theme["font_path"].array.map(\.string); pool.text = theme["text_line"].array.map(\.string); pool.audio = theme["audio_path"].array.map(\.string)
@@ -111,7 +166,7 @@ public struct Session: Sendable {
         }
         for name in programs {
             var enabled = json["program_map"][name]["enabled_theme"].array
-            for theme in pools.keys.sorted() where !enabled.contains(where: { $0["theme_name"].string == theme }) {
+            for theme in discoveredNames.sorted() where !enabled.contains(where: { $0["theme_name"].string == theme }) {
                 enabled.append(.object(["theme_name": .string(theme), "random_weight": .number(1)]))
             }
             json["program_map"][name]["enabled_theme"] = .array(enabled)
@@ -121,6 +176,17 @@ public struct Session: Sendable {
         let prefix = root.standardizedFileURL.path + "/"
         let path = url.standardizedFileURL.path
         return path == root.standardizedFileURL.path ? "." : String(path.dropFirst(prefix.count))
+    }
+    public static func scannedText(_ input: String) -> String {
+        let text = Array(input.uppercased())
+        guard !text.isEmpty else { return "" }
+        var left = text.count/2, right = left
+        while true {
+            if text[right] == " " { return String(text[..<right])+"\n"+String(text[(right+1)...]) }
+            if text[left] == " " { return String(text[..<left])+"\n"+String(text[(left+1)...]) }
+            if left == 0 || right == text.count-1 { return String(text) }
+            left -= 1; right += 1
+        }
     }
     func directPool(directory: URL, exclude: Set<String>) throws -> ThemePool {
         var pool = ThemePool()
@@ -136,7 +202,7 @@ public struct Session: Sendable {
             case "wav", "flac", "ogg", "aiff", "mp3": pool.audio.append(path)
             case "txt":
                 let contents = try String(contentsOf: file, encoding: .utf8)
-                pool.text += contents.components(separatedBy: .newlines).filter { !$0.isEmpty }.map { $0.uppercased() }
+                pool.text += contents.components(separatedBy: .newlines).filter { !$0.isEmpty }.map(Self.scannedText)
             default: pool.images.append(path)
             }
         }
