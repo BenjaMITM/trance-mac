@@ -7,14 +7,16 @@ actor CodecService {
     func compatibleURL(_ source: URL) async throws -> URL {
         let ext = source.pathExtension.lowercased()
         guard ["webm","ogg"].contains(ext) else { return source }
-        let key = source.path
+        let attributes = try FileManager.default.attributesOfItem(atPath: source.path)
+        let key = "\(source.path)|\(attributes[.modificationDate] ?? "")|\(attributes[.size] ?? "")"
         if let task = conversions[key] { return try await task.value }
         let task = Task { try convert(source) }
         conversions[key] = task
         do { return try await task.value } catch { conversions[key] = nil; throw error }
     }
     private func convert(_ source: URL) throws -> URL {
-        let candidates = ["/opt/homebrew/bin/ffmpeg","/usr/local/bin/ffmpeg"]
+        let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/ffmpeg").path
+        let candidates = [bundled,"/opt/homebrew/bin/ffmpeg","/usr/local/bin/ffmpeg"]
         guard let executable = candidates.first(where:FileManager.default.isExecutableFile(atPath:)) else { throw TranceError("WebM/Ogg playback requires the approved FFmpeg helper at /opt/homebrew/bin/ffmpeg or /usr/local/bin/ffmpeg") }
         let attributes = try FileManager.default.attributesOfItem(atPath:source.path)
         let stamp = "\(source.path)|\(attributes[.modificationDate] ?? "")|\(attributes[.size] ?? "")"

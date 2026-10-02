@@ -17,6 +17,9 @@
 
 - Program creation, duplication and rename without restarting playlist clocks.
 
+- Native graphical/audio acceptance targets, actual-window capture and a generated application icon.
+- Self-contained local ZIP/DMG packaging with bundled codec helper, loader-path auditing, ad-hoc signatures and checksums.
+
 ### Fixed
 - Core Audio callback isolation causing startup crashes in the first build.
 - Exhausted subroutines restarting, incorrect playlist reference handling, and permissive malformed session fields.
@@ -28,6 +31,9 @@
 
 - Malformed custom recipes no longer block valid automatic visuals.
 - Inactive video playback pauses; session switches release video players and invalidate pending results.
+
+- Reliable player-window startup when SwiftUI restoration omits the initial window.
+- Clickable section headers and readable program action labels.
 
 ### Known limitations
 - Feature parity is under active verification; see MIGRATION.md before relying on existing sessions.

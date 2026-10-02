@@ -3,6 +3,7 @@ import AppKit
 
 struct ControlPanel: View {
     @Bindable var store: PlaybackStore
+    @State private var visualsExpanded = true
     var body: some View {
         ScrollView {
             VStack(alignment:.leading,spacing:16) {
@@ -18,7 +19,7 @@ struct ControlPanel: View {
                         Text("Runtime program override until the next playlist item").font(.caption).foregroundStyle(.secondary)
                         Button("Follow Playlist",action:store.releaseProgram)
                     }
-                    DisclosureGroup("Visuals",isExpanded:.constant(true)) { VisualControls(store:store) }
+                    DisclosureGroup("Visuals",isExpanded:$visualsExpanded) { VisualControls(store:store) }
                     DisclosureGroup("Custom Patterns") { PatternEditor(store:store) }
                     DisclosureGroup("Program") { ProgramEditor(store:store); ProgramControls(store:store) }
                     DisclosureGroup("Themes") { ThemeEditor(store:store) }
@@ -40,7 +41,7 @@ struct ControlPanel: View {
                     }
                 } else { Button("Open Session…",action:store.open); Button("Choose Media Folder…",action:store.scanFolder) }
             }.padding()
-        }
+        }.disclosureGroupStyle(SectionDisclosureStyle())
     }
 }
 struct VisualControls: View {
@@ -108,6 +109,25 @@ struct ThemeControls: View {
                 }
             }
             if !store.themePins.isEmpty { Text("Runtime pins are not saved").font(.caption); Button("Release Pins") { store.themePins = []; store.chooseThemes() } }
+        }
+    }
+}
+
+struct SectionDisclosureStyle: DisclosureGroupStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                configuration.isExpanded.toggle()
+            } label: {
+                HStack {
+                    Image(systemName: configuration.isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption).frame(width: 14)
+                    configuration.label
+                    Spacer()
+                }.contentShape(Rectangle())
+            }.buttonStyle(.plain)
+                .accessibilityValue(configuration.isExpanded ? "Expanded" : "Collapsed")
+            if configuration.isExpanded { configuration.content }
         }
     }
 }

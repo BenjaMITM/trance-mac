@@ -9,3 +9,7 @@ xcuserdata/
 *.pem
 .swiftpm/
 trance-original-windows-dotnet/
+
+releases/
+
+__pycache__/

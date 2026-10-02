@@ -48,12 +48,35 @@ private final class SynthStorage: Sendable { let state = Mutex(SynthState()) }
     var muted = false { didSet { updateState() } }
     var paused = false { didSet { updateState() } }
     private var requestedVolumes: [Int: Float] = [:]
-    func start() throws {
+    func start(manualRendering: Bool = false) throws {
         guard source == nil else { return }
         guard let format = AVAudioFormat(standardFormatWithSampleRate: 44100,channels: 2) else { throw TranceError("Unable to create stereo format") }
         let source = Self.makeSource(format: format, storage: storage)
         engine.attach(source); engine.connect(source,to: engine.mainMixerNode,format: format)
+        if manualRendering { try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 4096) }
         try engine.start(); self.source = source
+    }
+    /// Uses the same production callback through AVAudioEngine's offline renderer.
+    func renderOffline(frames: Int) throws -> [[Float]] {
+        guard engine.isInManualRenderingMode, frames > 0,
+              let buffer = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: 4096) else {
+            throw TranceError("Offline rendering requires a manually configured engine and positive frame count")
+        }
+        var samples = [[Float](), [Float]()]
+        var remaining = frames
+        while remaining > 0 {
+            let count = AVAudioFrameCount(min(4096, remaining))
+            guard try engine.renderOffline(count, to: buffer) == .success, let channels = buffer.floatChannelData else {
+                throw TranceError("Audio engine did not render the requested samples")
+            }
+            for channel in 0..<2 { samples[channel].append(contentsOf: UnsafeBufferPointer(start: channels[channel], count: Int(buffer.frameLength))) }
+            remaining -= Int(buffer.frameLength)
+        }
+        return samples
+    }
+    func channelState(_ channel: Int) -> (playing: Bool, time: Double, volume: Float, loops: Int)? {
+        guard let player = channels[channel] else { return nil }
+        return (player.isPlaying, player.currentTime, player.volume, player.numberOfLoops)
     }
     nonisolated private static func makeSource(format: AVAudioFormat, storage: SynthStorage) -> AVAudioSourceNode {
         return AVAudioSourceNode(format: format) { _,_,count,list in

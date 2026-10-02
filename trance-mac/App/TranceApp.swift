@@ -3,7 +3,12 @@ import AppKit
 
 struct TranceApp: App {
     @NSApplicationDelegateAdaptor(TranceDelegate.self) private var delegate
-    @State private var store = PlaybackStore()
+    @State private var store: PlaybackStore
+    init() {
+        let state = PlaybackStore()
+        _store = State(initialValue: state)
+        delegate.store = state
+    }
     var body: some Scene {
         WindowGroup("Trance",id:"player") { ContentView(store:store).frame(minWidth:800,minHeight:500).onAppear { delegate.store = store; delegate.configure() } }
             .defaultLaunchBehavior(.presented)
@@ -36,9 +41,26 @@ struct TranceApp: App {
     }
 }
 @MainActor final class TranceDelegate: NSObject, NSApplicationDelegate {
-    weak var store: PlaybackStore?
+    var store: PlaybackStore?
+    private var startupWindow: NSWindow?
     private var configured = false
-    func applicationDidFinishLaunching(_ notification: Notification) { NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps:true) }
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular); configure()
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let store, !store.hidden else { return }
+            if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "player" || $0.title == "Trance" }) {
+                window.makeKeyAndOrderFront(nil)
+            } else {
+                // SwiftUI restoration can omit its initial window when launched by Xcode.
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 720), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+                window.title = "Trance"; window.identifier = NSUserInterfaceItemIdentifier("player")
+                window.contentView = NSHostingView(rootView: ContentView(store: store))
+                window.center(); startupWindow = window; window.makeKeyAndOrderFront(nil)
+            }
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
     private var commands: CommandService?
     private var hotkey: HotkeyService?
     func configure() {

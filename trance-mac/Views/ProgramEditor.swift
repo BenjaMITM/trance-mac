@@ -6,8 +6,8 @@ struct ProgramEditor: View {
     @State private var status = ""
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            TextField("Program name", text: $name)
-            HStack {
+            TextField("Program name", text: $name).accessibilityIdentifier("program-name")
+            VStack(alignment: .leading, spacing: 6) {
                 Button("New Default") { save(rename: false, copy: false) }
                 Button("Duplicate Current") { save(rename: false, copy: true) }
                 Button("Rename Current") { save(rename: true, copy: false) }
