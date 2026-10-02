@@ -6,6 +6,7 @@ import AppKit
     @State private var store = PlaybackStore()
     var body: some Scene {
         WindowGroup("Trance",id:"player") { ContentView(store:store).frame(minWidth:800,minHeight:500).onAppear { delegate.store = store; delegate.configure() } }
+            .defaultLaunchBehavior(.presented)
             .commands {
                 CommandGroup(replacing:.newItem) {
                     Button("Open Session…",action:store.open).keyboardShortcut("o")

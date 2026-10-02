@@ -12,6 +12,8 @@ struct PlayerView: NSViewRepresentable {
 @MainActor final class PlayerCanvas: NSView {
     weak var store: PlaybackStore?
     private var cache: [String: NSImage] = [:]
+    private let videos = VideoFrameService()
+    private var lastVideoImages: [String:NSImage] = [:]
     private var gifSources: [String: CGImageSource] = [:]
     private var gifDurations: [String: [Double]] = [:]
     private var failed = Set<String>()
@@ -53,6 +55,11 @@ struct PlayerView: NSViewRepresentable {
     }
     private func image(_ path: String, animated: Bool, time: Double) -> NSImage? {
         guard !failed.contains(path), let session = store?.session, let url = try? session.resolve(path) else { return nil }
+        if animated && url.pathExtension.lowercased() == "webm" {
+            if let image = videos.frame(url:url,paused:store?.paused == true || store?.hidden == true) { lastVideoImages[path] = image }
+            if let error = videos.error(url:url) { failed.insert(path); store?.message = error }
+            return lastVideoImages[path]
+        }
         if animated && url.pathExtension.lowercased() == "gif" {
             if gifSources[path] == nil {
                 guard let source = CGImageSourceCreateWithURL(url as CFURL,nil) else { failed.insert(path); return nil }

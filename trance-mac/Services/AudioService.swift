@@ -9,7 +9,7 @@ private struct SynthState: Sendable {
     var tones: [Tone] = []; var targets: [Tone] = []
     var gain = 0.0; var targetGain = 0.0; var remaining = 0
     var paused = false; var muted = false
-    mutating func sample(rate: Double) -> (Float, Float) {
+    mutating func sample(rate: Double, clamp: Bool = true) -> (Float, Float) {
         guard !paused else { return (0,0) }
         var left = 0.0, right = 0.0
         let blend = remaining > 0 ? 1/Double(remaining) : 1
@@ -29,7 +29,8 @@ private struct SynthState: Sendable {
             tones[i].pulsePhase = (t.pulsePhase+2 * .pi*t.pulse/rate).truncatingRemainder(dividingBy: 2 * .pi)
         }
         if remaining > 0 { remaining -= 1 }
-        return muted ? (0,0) : (Float(max(-0.8,min(0.8,left*gain))),Float(max(-0.8,min(0.8,right*gain))))
+        if muted { return (0,0) }
+        return clamp ? (Float(max(-0.8,min(0.8,left*gain))),Float(max(-0.8,min(0.8,right*gain)))) : (Float(left*gain),Float(right*gain))
     }
 }
 
@@ -50,8 +51,12 @@ private final class SynthStorage: Sendable { let state = Mutex(SynthState()) }
     func start() throws {
         guard source == nil else { return }
         guard let format = AVAudioFormat(standardFormatWithSampleRate: 44100,channels: 2) else { throw TranceError("Unable to create stereo format") }
-        let storage = self.storage
-        let source = AVAudioSourceNode(format: format) { _,_,count,list in
+        let source = Self.makeSource(format: format, storage: storage)
+        engine.attach(source); engine.connect(source,to: engine.mainMixerNode,format: format)
+        try engine.start(); self.source = source
+    }
+    nonisolated private static func makeSource(format: AVAudioFormat, storage: SynthStorage) -> AVAudioSourceNode {
+        return AVAudioSourceNode(format: format) { _,_,count,list in
             let buffers = UnsafeMutableAudioBufferListPointer(list)
             guard buffers.count >= 2, let l = buffers[0].mData?.assumingMemoryBound(to: Float.self), let r = buffers[1].mData?.assumingMemoryBound(to: Float.self) else { return noErr }
             storage.state.withLock { value in
@@ -59,15 +64,13 @@ private final class SynthStorage: Sendable { let state = Mutex(SynthState()) }
             }
             return noErr
         }
-        engine.attach(source); engine.connect(source,to: engine.mainMixerNode,format: format)
-        try engine.start(); self.source = source
     }
     func configure(_ bed: JSONValue) {
         guard bed != lastBed else { return }; lastBed = bed
         let tones = bed["layer"].array.map { Tone(center: max(20,min(1000,$0["center_hz"].number)),binaural: max(0,min(40,$0["binaural_hz"].number)),pulse: max(0,min(40,$0["pulse_hz"].number)),amplitude: pow(10,max(-60,min(0,$0["amplitude_db"].number))/20)) }
         var calibration = SynthState(tones: tones,targets: tones,gain: 1,targetGain: 1)
         var squares = 0.0, peak = 0.0
-        for _ in 0..<88200 { let sample = calibration.sample(rate: 44100); let l = Double(sample.0), r = Double(sample.1); squares += l*l+r*r; peak = max(peak,abs(l),abs(r)) }
+        for _ in 0..<88200 { let sample = calibration.sample(rate: 44100, clamp: false); let l = Double(sample.0), r = Double(sample.1); squares += l*l+r*r; peak = max(peak,abs(l),abs(r)) }
         let rms = sqrt(squares/176400)
         let db = bed["master_db"].number == 0 ? -28 : max(-60,min(-6,bed["master_db"].number))
         let gain = tones.isEmpty || rms == 0 ? 0 : min(pow(10,db/20)/rms,peak > 0 ? 0.8/peak : 1)
@@ -76,13 +79,26 @@ private final class SynthStorage: Sendable { let state = Mutex(SynthState()) }
             state.targets = tones; state.targetGain = gain; state.remaining = 13230
         }
     }
+    func convertedEvents(_ events: [JSONValue], session: Session) async throws {
+        let converted = events
+        for i in converted.indices where converted[i]["type"].string == "play" {
+            let original = try session.resolve(converted[i]["path"].string)
+            if original.pathExtension.lowercased() == "ogg" {
+                let compatible = try await CodecService.shared.compatibleURL(original)
+                playConverted[i] = compatible
+            }
+        }
+        defer { playConverted = [:] }
+        try self.events(converted,session:session)
+    }
+    private var playConverted: [Int:URL] = [:]
     func events(_ events: [JSONValue], session: Session) throws {
-        for event in events {
+        for (eventIndex,event) in events.enumerated() {
             var channel = Int(event["channel"].number)
             switch event["type"].string {
             case "play":
                 if event["next_unused_channel"].bool { while channels[channel]?.isPlaying == true { channel += 1 } }
-                let player = try AVAudioPlayer(contentsOf: session.resolve(event["path"].string))
+                let player = try AVAudioPlayer(contentsOf: playConverted[eventIndex] ?? session.resolve(event["path"].string))
                 player.numberOfLoops = event["loop"].bool ? -1 : 0
                 requestedVolumes[channel] = Float(min(100,max(0,event["volume"].number))/100)
                 player.volume = muted ? 0 : requestedVolumes[channel] ?? 1

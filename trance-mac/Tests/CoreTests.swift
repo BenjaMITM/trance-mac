@@ -48,3 +48,43 @@ import Foundation
     _ = try runner.advance(1,session: session); #expect(runner.current == "main")
     _ = try runner.advance(1,session: session); #expect(runner.current == "hold")
 }
+
+@Test func archiveRoundTripWithSystemZip() throws {
+    let root = URL(fileURLWithPath:NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
+    let session = try Session.new(at:root.appendingPathComponent("session.json"))
+    let archive = root.appendingPathComponent("portable.trance")
+    try ArchiveExporter.export(session,to:archive)
+    let process = Process(); process.executableURL = URL(fileURLWithPath:"/usr/bin/unzip"); process.arguments = ["-t",archive.path]; process.standardOutput = FileHandle.nullDevice
+    try process.run(); process.waitUntilExit(); #expect(process.terminationStatus == 0)
+    let extract = root.appendingPathComponent("extracted")
+    let unzip = Process(); unzip.executableURL = URL(fileURLWithPath:"/usr/bin/unzip"); unzip.arguments = ["-q",archive.path,"-d",extract.path]
+    try unzip.run(); unzip.waitUntilExit(); #expect(unzip.terminationStatus == 0)
+    let restored = try Session.load(extract.appendingPathComponent("session.json"))
+    #expect(restored.json["first_playlist_item"].string == "main")
+}
+@Test func legacySessionKeepsOriginal() throws {
+    let root = URL(fileURLWithPath:NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
+    let input = root.appendingPathComponent("old.session")
+    let text = """
+    first_playlist_item: "main"
+    program_map { key: "default" value { global_fps: 60 visual_type { type: PARALLEL random_weight: 1 } } }
+    playlist { key: "main" value { program: "default" play_time_seconds: 0 } }
+    """
+    try text.write(to:input,atomically:true,encoding:.utf8)
+    let migrated = try LegacyImporter.importSession(input)
+    #expect(migrated.json["program_map"]["default"]["visual_type"].array.first?["type"].string == "parallel")
+    #expect(try String(contentsOf:input,encoding:.utf8) == text)
+    #expect(FileManager.default.fileExists(atPath:root.appendingPathComponent("old.json").path))
+}
+@Test func subroutineReturnsToNextChild() throws {
+    var session = try Session.new(at:URL(fileURLWithPath:"/private/tmp/no-media/session.json"))
+    session.json["playlist"] = .object([
+        "main":.object(["subroutine":.array([.string("one"),.string("two")])]),
+        "one":.object(["standard":.object(["program":.string("default"),"play_time_seconds":.number(1)])]),
+        "two":.object(["standard":.object(["program":.string("default"),"play_time_seconds":.number(1)])])])
+    var runner = PlaylistRunner(); _ = try runner.start(session:session)
+    _ = try runner.advance(0,session:session); #expect(runner.current == "one")
+    _ = try runner.advance(1,session:session); #expect(runner.current == "two")
+}

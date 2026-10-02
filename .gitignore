@@ -7,3 +7,5 @@ xcuserdata/
 *.xcuserstate
 .env
 *.pem
+.swiftpm/
+trance-original-windows-dotnet/

@@ -6,4 +6,4 @@ script = ""
 [[actions]]
 name = "Run"
 icon = "run"
-command = "./trance-mac/script/build_and_run.sh"
+command = "TRANCE_BUILD_METHOD=swiftc ./trance-mac/script/build_and_run.sh"

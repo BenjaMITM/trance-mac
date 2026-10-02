@@ -74,18 +74,24 @@ import Observation
         do {
             self.session = session; editorText = try session.json.text(); themePins = []; forcedVisual = nil
             playlist = PlaylistRunner(); playlist.variables = variables
-            try audio.events(playlist.start(session: session),session: session)
+            let initialEvents = try playlist.start(session: session)
+            dispatchAudio(initialEvents,session:session)
             programName = playlist.program; contentTime = 0; accumulator = 0; themeClock = 0
             if let data = try? Data(contentsOf: session.root.appendingPathComponent("system.json")), let json = try? JSONDecoder().decode(JSONValue.self,from: data) { system = json }
             chooseThemes(); try chooseVisual(); audio.configure(program["entrainment"]); lastTime = Date()
         } catch { message = error.localizedDescription }
+    }
+    private func dispatchAudio(_ events: [JSONValue],session: Session) {
+        guard !events.isEmpty else { return }
+        Task { do { try await audio.convertedEvents(events,session:session) } catch { message = error.localizedDescription } }
     }
     func tick() {
         let now = Date(), delta = min(0.25,now.timeIntervalSince(lastTime)); lastTime = now
         guard let session, !paused, !hidden else { return }
         do {
             playlist.variables = variables
-            try audio.events(playlist.advance(delta,session: session),session: session)
+            let events = try playlist.advance(delta,session:session)
+            dispatchAudio(events,session:session)
             if !playlist.program.isEmpty, playlist.program != programName { programName = playlist.program; chooseThemes(); try chooseVisual(); audio.configure(program["entrainment"]) }
             audio.tick(delta); contentTime += delta; themeClock += delta
             if themeClock > 15 { chooseThemes(); themeClock = 0 }
@@ -175,7 +181,8 @@ import Observation
                     case "audio":
                         do {
                             if effect.content == "stop" { try audio.theme(path: nil) }
-                            else if let path = pool.audio.randomElement(), let session { try audio.theme(path: session.resolve(path),loop: effect.loop) }
+                            else if let path = pool.audio.randomElement(), let session { let url = try session.resolve(path)
+                            Task { do { let compatible = try await CodecService.shared.compatibleURL(url); try audio.theme(path:compatible,loop:effect.loop) } catch { message = error.localizedDescription } } }
                         } catch { message = error.localizedDescription }
                     default: break
                     }
@@ -223,12 +230,12 @@ import Observation
     func saveSystem() { guard let session else { return }; do { try system.encoded().write(to: session.root.appendingPathComponent("system.json"),options: .atomic) } catch { message = error.localizedDescription } }
     func setHidden(_ value: Bool) {
         hidden = value
-        if value { overlay = false; NSApp.windows.filter { $0.identifier?.rawValue == "player" }.forEach { $0.orderOut(nil) } }
-        else { NSApp.windows.filter { $0.identifier?.rawValue == "player" }.forEach { $0.makeKeyAndOrderFront(nil) }; NSApp.activate(ignoringOtherApps: true) }
+        if value { overlay = false; NSApp.windows.filter { $0.identifier?.rawValue == "player" || $0.title == "Trance" }.forEach { $0.orderOut(nil) } }
+        else { NSApp.windows.filter { $0.identifier?.rawValue == "player" || $0.title == "Trance" }.forEach { $0.makeKeyAndOrderFront(nil) }; NSApp.activate(ignoringOtherApps: true) }
         audio.paused = paused || hidden; audio.muted = muted || hidden
     }
     func applyWindow() {
-        for window in NSApp.windows where window.identifier?.rawValue == "player" {
+        for window in NSApp.windows where window.identifier?.rawValue == "player" || window.title == "Trance" {
             window.ignoresMouseEvents = overlay; window.level = overlay ? .floating : .normal
             window.alphaValue = overlay ? opacity : 1
             window.collectionBehavior = overlay ? [.canJoinAllSpaces,.fullScreenAuxiliary] : [.managed,.fullScreenPrimary]

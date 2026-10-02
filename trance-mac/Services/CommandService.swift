@@ -66,14 +66,44 @@ import AppKit
         switch request["method"].string {
         case "initialize": return .object(["protocolVersion":.string("2024-11-05"),"capabilities":.object(["tools":.object([:])]),"serverInfo":.object(["name":.string("trance-mac"),"version":.string("0.1.0")])])
         case "ping": return .object([:])
-        case "tools/list": return .object(["tools":.array([.object(["name":.string("trance_command"),"description":.string("Control the running trance session with the documented line protocol"),"inputSchema":.object(["type":.string("object"),"properties":.object(["command":.object(["type":.string("string")])]),"required":.array([.string("command")])])])])])
+        case "tools/list": return .object(["tools":.array(Self.toolDefinitions.map { name, command, fields in
+            let properties = Dictionary(uniqueKeysWithValues:fields.map { field -> (String,JSONValue) in
+                let type = ["opacity","db","value"].contains(field) ? "number" : field == "index" ? "integer" : "string"
+                return (field,.object(["type":.string(type)]))
+            })
+            return .object(["name":.string(name),"description":.string("Trance control: " + command),"inputSchema":.object(["type":.string("object"),"properties":.object(properties),"required":.array(fields.map(JSONValue.string))])])
+        })])
         case "tools/call":
-            guard request["params"]["name"].string == "trance_command" else { throw TranceError("Unknown tool") }
-            let reply = execute(request["params"]["arguments"]["command"].string)
+            let name = request["params"]["name"].string, args = request["params"]["arguments"]
+            guard let definition = Self.toolDefinitions.first(where:{$0.0 == name}) else { throw TranceError("Unknown tool") }
+            var command = definition.1
+            for field in definition.2 {
+                let value = args[field]
+                guard value != .null else { throw TranceError("Missing argument: " + field) }
+                let text: String
+                if case .number(let v) = value { text = String(v) } else { text = value.string }
+                command += " " + (field == "source" ? text.replacingOccurrences(of:"\n",with:"\\n") : text)
+            }
+            if name == "bed_layer_remove" { command = "bed layer remove " + String(Int(args["index"].number)) }
+            if name == "bed_layer_set" { command = "bed layer \(Int(args["index"].number)) \(args["field"].string) \(args["value"].number)" }
+            if name == "trance_command" { command = args["command"].string }
+            let reply = execute(command)
             return .object(["content":.array([.object(["type":.string("text"),"text":.string(reply)])]),"isError":.bool(reply.hasPrefix("err"))])
         default: throw TranceError("Unknown JSON-RPC method")
         }
     }
+    private static let toolDefinitions: [(String,String,[String])] = [
+        ("status","status",[]),("pause","pause",[]),("resume","resume",[]),("hide","hide",[]),("show","show",[]),
+        ("overlay_on","overlay on",[]),("overlay_off","overlay off",[]),("overlay_opacity","overlay opacity",["opacity"]),
+        ("themes","themes",[]),("theme_pin","theme pin",["names"]),("theme_unpin","theme unpin",[]),
+        ("visuals","visuals",[]),("visual","visual",["name"]),("load_pattern","load pattern",["file"]),
+        ("load_pattern_source","load pattern source",["source"]),("unload_pattern","unload pattern",[]),
+        ("text_pin","text pin",["words"]),("text_unpin","text unpin",[]),("ui_on","ui on",[]),("ui_off","ui off",[]),
+        ("screenshot","screenshot",["file"]),("mute_on","mute on",[]),("mute_off","mute off",[]),
+        ("bed_on","bed on",[]),("bed_off","bed off",[]),("bed_layers","bed layers",[]),("bed_master","bed master",["db"]),
+        ("bed_layer_add","bed layer add",[]),("bed_layer_remove","bed layer remove",["index"]),
+        ("bed_layer_set","bed layer",["index","field","value"]),("trance_command","",["command"])
+    ]
     func execute(_ line: String) -> String {
         guard let store else { return "err player unavailable" }
         let split = line.split(separator:" ",maxSplits:1).map(String.init)
@@ -130,7 +160,7 @@ import AppKit
         store.updateProgram("entrainment",bed,save:false); return "ok count=\(bed["layer"].array.count)"
     }
     private func screenshot(_ path: String) throws {
-        guard !path.isEmpty,let view = NSApp.windows.first(where:{$0.identifier?.rawValue == "player"})?.contentView,
+        guard !path.isEmpty,let view = NSApp.windows.first(where:{$0.identifier?.rawValue == "player" || $0.title == "Trance"})?.contentView,
               let bitmap = view.bitmapImageRepForCachingDisplay(in:view.bounds) else { throw TranceError("No desktop frame available") }
         view.cacheDisplay(in:view.bounds,to:bitmap)
         guard let data = bitmap.representation(using:.png,properties:[:]) else { throw TranceError("PNG encoding failed") }; try data.write(to:URL(fileURLWithPath:path),options:.atomic)
